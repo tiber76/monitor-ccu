@@ -6,6 +6,7 @@ import { readFileSync, statSync, readdirSync, watchFile } from 'node:fs';
 import { createReadStream } from 'node:fs';
 import { createInterface } from 'node:readline';
 import { join, dirname, basename, relative, sep } from 'node:path';
+import { exec } from 'node:child_process';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 
@@ -481,9 +482,15 @@ const server = createServer(async (req, res) => {
 
 const PORT = 3333;
 server.listen(PORT, () => {
-  console.log(`\nCCU Monitor → http://localhost:${PORT}`);
+  const url = `http://localhost:${PORT}`;
+  console.log(`\nCCU Monitor → ${url}`);
   console.log(`Watching ~/.claude/projects/ for live token events...\n`);
   getStats(7).catch(console.error);
+
+  const cmd = process.platform === 'win32' ? `start ${url}`
+            : process.platform === 'darwin' ? `open ${url}`
+            : `xdg-open ${url}`;
+  exec(cmd, err => { if (err) console.log(`Ouvre manuellement : ${url}`); });
 });
 
 scanAndWatch();
