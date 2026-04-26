@@ -1,0 +1,734 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CCU Monitor</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'Inter', system-ui, -apple-system, sans-serif; background: #fbfaf6; color: #1a1a1a; font-size: 13px; }
+
+/* ── Header ──────────────────────────────────────────── */
+header {
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 24px; background: #fff; border-bottom: 1px solid #e8e3d9;
+  position: sticky; top: 0; z-index: 20;
+}
+.brand { font-weight: 700; font-size: 14px; letter-spacing: -0.3px; }
+.sep { color: #ddd; }
+#header-cost { font-size: 13px; color: #555; font-variant-numeric: tabular-nums; }
+.live-indicator { margin-left: auto; display: flex; align-items: center; gap: 6px; font-size: 11px; color: #9ca3af; font-weight: 500; text-transform: uppercase; letter-spacing: 0.4px; }
+.live-dot { width: 7px; height: 7px; border-radius: 50%; background: #d1d5db; transition: background 0.3s; }
+.live-dot.connected { background: #cd0000; animation: blink 1.6s ease-in-out infinite; }
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:.3} }
+
+/* ── Tabs ────────────────────────────────────────────── */
+.tab-nav { display: flex; padding: 0 24px; background: #fff; border-bottom: 1px solid #e8e3d9; position: sticky; top: 45px; z-index: 19; }
+.tab-btn { padding: 9px 18px; font-size: 13px; font-weight: 500; border: none; background: none; cursor: pointer; color: #888; border-bottom: 2px solid transparent; margin-bottom: -1px; transition: color .15s; }
+.tab-btn.active { color: #1a1a1a; border-bottom-color: #1a1a1a; }
+.tab-btn:hover:not(.active) { color: #555; }
+.tab-content { display: none; }
+.tab-content.active { display: block; }
+
+/* ── Main ────────────────────────────────────────────── */
+main { padding: 18px 24px; max-width: 1500px; margin: 0 auto; }
+
+/* ── Cards ───────────────────────────────────────────── */
+.card { background: #fff; border: 1px solid #e8e3d9; border-radius: 10px; padding: 16px 18px; }
+.card-title { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.6px; color: #aaa; margin-bottom: 12px; }
+
+/* ── Dashboard grid ──────────────────────────────────── */
+.top-grid { display: grid; grid-template-columns: 210px 1fr 250px; gap: 12px; margin-bottom: 12px; }
+.cost-big { font-size: 36px; font-weight: 700; letter-spacing: -1.5px; line-height: 1; margin-bottom: 12px; font-variant-numeric: tabular-nums; }
+.tokens-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; margin-bottom: 8px; }
+.token-box { background: #fbfaf6; border: 1px solid #f0ebe1; border-radius: 5px; padding: 6px 9px; }
+.token-box .tk-label { font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.4px; color: #bbb; display: block; margin-bottom: 1px; }
+.token-box .tk-value { font-size: 12px; font-weight: 600; font-family: 'DM Mono','Courier New',monospace; color: #333; }
+.calls-badge { font-size: 11px; color: #bbb; }
+.calls-badge strong { color: #666; }
+.chart-wrap { position: relative; height: 160px; }
+
+/* ── Live feed ───────────────────────────────────────── */
+.live-card { background: #fff; border: 1px solid #e8e3d9; border-radius: 10px; overflow: hidden; }
+.live-header { display: flex; align-items: center; gap: 8px; padding: 12px 18px 10px; border-bottom: 1px solid #f3efe6; }
+.live-header .card-title { margin-bottom: 0; }
+#feed-count { margin-left: auto; font-size: 11px; color: #ccc; }
+#live-feed { max-height: 380px; overflow-y: auto; }
+
+/* Feed rows — 2 lignes */
+.feed-row { padding: 8px 18px 7px; border-bottom: 1px solid #f8f5ef; transition: background .1s; }
+.feed-row:hover { background: #fdf8f0; }
+.feed-row:last-child { border-bottom: none; }
+.feed-row.new-row { animation: flash .8s ease-out; }
+@keyframes flash { from { background: #fef9e7; } to { background: transparent; } }
+
+.feed-main { display: flex; align-items: center; gap: 10px; font-size: 11px; }
+.feed-session-line { display: flex; align-items: center; gap: 5px; margin-top: 3px; padding-left: 2px; font-size: 10px; }
+
+.ft  { color: #9ca3af; font-family: 'DM Mono',monospace; min-width: 66px; }
+.fm  { font-weight: 600; min-width: 90px; }
+.fp  { color: #777; min-width: 68px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fc  { font-weight: 700; font-family: 'DM Mono',monospace; min-width: 60px; }
+.fo  { color: #2563eb; font-family: 'DM Mono',monospace; min-width: 52px; }
+.fcr { color: #059669; font-family: 'DM Mono',monospace; min-width: 60px; }
+.fcw { color: #d97706; font-family: 'DM Mono',monospace; min-width: 60px; }
+.nil { color: #e2ddd4; }
+
+.f-uuid  { color: #ccc; font-family: 'DM Mono',monospace; font-size: 10px; flex-shrink: 0; }
+.f-sep   { color: #e2ddd4; }
+.f-title { color: #777; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 600px; }
+.f-notitle { color: #ccc; font-style: italic; }
+
+/* ── Sessions tab ────────────────────────────────────── */
+
+/* Chart card */
+#sessions-chart-card { margin-bottom: 12px; display: none; }
+.chart-card-header { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+.chart-card-header .card-title { margin-bottom: 0; }
+.chart-toggle { display: flex; background: #f3efe6; border-radius: 5px; padding: 2px; gap: 0; margin-left: auto; }
+.ctoggle { padding: 4px 14px; font-size: 11px; font-weight: 500; border: none; background: none; cursor: pointer; color: #888; border-radius: 3px; transition: all .15s; }
+.ctoggle.active { background: #fff; color: #1a1a1a; box-shadow: 0 1px 3px rgba(0,0,0,.1); }
+.chart-sessions-wrap { position: relative; height: 200px; }
+
+/* Filters */
+.sessions-filters { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
+.filter-group { display: flex; align-items: center; gap: 5px; }
+.filter-label { font-size: 11px; color: #aaa; font-weight: 500; text-transform: uppercase; letter-spacing: 0.4px; }
+.filter-select, .filter-input { font-size: 12px; padding: 5px 10px; border: 1px solid #e8e3d9; border-radius: 6px; background: #fff; color: #1a1a1a; outline: none; cursor: pointer; }
+.filter-select:focus, .filter-input:focus { border-color: #aaa; }
+.filter-input { width: 160px; }
+#btn-load-sessions { font-size: 12px; font-weight: 500; padding: 5px 14px; background: #1a1a1a; color: #fff; border: none; border-radius: 6px; cursor: pointer; }
+#btn-load-sessions:hover { background: #333; }
+#sessions-summary { font-size: 11px; color: #aaa; margin-left: auto; }
+
+/* Sessions table */
+.sessions-wrap { overflow-x: auto; }
+.sessions-table { width: 100%; border-collapse: collapse; font-size: 11px; white-space: nowrap; }
+.sessions-table thead th {
+  background: #fbfaf6; border-bottom: 2px solid #e8e3d9; padding: 8px 10px;
+  text-align: left; font-weight: 600; font-size: 10px; text-transform: uppercase;
+  letter-spacing: 0.4px; color: #aaa; position: sticky; top: 0; z-index: 1;
+}
+.sessions-table thead th.num { text-align: right; }
+.sessions-table tbody tr.session-row { cursor: pointer; border-bottom: 1px solid #f3efe6; transition: background .1s; }
+.sessions-table tbody tr.session-row:hover { background: #fdf8f0; }
+.sessions-table tbody tr.session-row.expanded { background: #fdf8f0; }
+.sessions-table td { padding: 7px 10px; vertical-align: middle; }
+.sessions-table td.num { text-align: right; font-family: 'DM Mono',monospace; }
+.expand-icon { display: inline-block; width: 14px; color: #bbb; font-size: 10px; transition: transform .15s; }
+.expanded .expand-icon { transform: rotate(90deg); }
+.detail-row { display: none; }
+.detail-row.open { display: table-row; }
+.detail-row td { background: #fbfaf6; padding: 0; }
+.detail-inner { padding: 6px 18px 10px 36px; }
+.detail-inner table { width: 100%; font-size: 10px; }
+.detail-inner th { color: #bbb; text-transform: uppercase; letter-spacing: 0.4px; padding: 4px 8px 2px; font-weight: 600; text-align: left; border-bottom: 1px solid #ede8de; }
+.detail-inner th.num { text-align: right; }
+.detail-inner td { padding: 4px 8px; border-bottom: 1px solid #f3efe6; }
+.detail-inner td.num { text-align: right; font-family: 'DM Mono',monospace; }
+.detail-inner tr:last-child td { border-bottom: none; }
+.tbl-at { color: #888; font-family: 'DM Mono',monospace; font-size: 10px; }
+.tbl-uuid { color: #bbb; font-family: 'DM Mono',monospace; }
+.tbl-model { font-weight: 600; }
+.tbl-proj { color: #666; }
+.tbl-title { color: #333; max-width: 380px; overflow: hidden; text-overflow: ellipsis; }
+.tbl-cost { font-weight: 700; font-family: 'DM Mono',monospace; }
+.tbl-brut { color: #bbb; font-family: 'DM Mono',monospace; }
+.delta-pos-hi { color: #cd0000; font-weight: 600; }
+.delta-pos-lo { color: #d97706; }
+.delta-neg-hi { color: #059669; font-weight: 600; }
+.delta-neg-lo { color: #059669; }
+.delta-flat   { color: #bbb; }
+.summary-row td { background: #f3efe6 !important; font-weight: 700; border-top: 2px solid #e8e3d9 !important; }
+
+/* ── Timeline ────────────────────────────────────────── */
+#timeline-card { margin-top: 12px; display: none; }
+.timeline-table td.t-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 340px; color: #555; }
+.cumul-cell { font-family: 'DM Mono',monospace; font-weight: 700; color: #1a1a1a; }
+.cumul-bar-wrap { display: flex; align-items: center; gap: 8px; }
+.cumul-bar { height: 6px; background: #2563eb22; border-radius: 3px; position: relative; overflow: hidden; flex: 1; min-width: 60px; max-width: 120px; }
+.cumul-bar-fill { position: absolute; left: 0; top: 0; height: 100%; background: #2563eb; border-radius: 3px; transition: width .3s; }
+
+/* Loading */
+#loading { position:fixed;inset:0;background:rgba(251,250,246,.92);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;z-index:100;font-size:13px;color:#888; }
+.spinner { width:28px;height:28px;border:3px solid #e8e3d9;border-top-color:#1a1a1a;border-radius:50%;animation:spin .8s linear infinite; }
+@keyframes spin { to{transform:rotate(360deg)} }
+#sessions-loading { display:none;padding:40px;text-align:center;color:#aaa; }
+</style>
+</head>
+<body>
+
+<div id="loading"><div class="spinner"></div><span>Chargement des données…</span></div>
+
+<header>
+  <span class="brand">CCU Monitor</span>
+  <span class="sep">|</span>
+  <span id="header-cost">…</span>
+  <div class="live-indicator">
+    <div class="live-dot" id="live-dot"></div>
+    <span id="live-label">Connexion…</span>
+  </div>
+</header>
+
+<nav class="tab-nav">
+  <button class="tab-btn active" data-tab="dashboard">Dashboard</button>
+  <button class="tab-btn" data-tab="sessions">Sessions</button>
+</nav>
+
+<!-- ══ TAB DASHBOARD ══════════════════════════════════════ -->
+<div id="tab-dashboard" class="tab-content active">
+<main>
+  <div class="top-grid">
+    <div class="card">
+      <div class="card-title">Aujourd'hui</div>
+      <div class="cost-big" id="today-cost">—</div>
+      <div class="tokens-grid">
+        <div class="token-box"><span class="tk-label">Input</span><span class="tk-value" id="tk-input">—</span></div>
+        <div class="token-box"><span class="tk-label">Output</span><span class="tk-value" id="tk-output">—</span></div>
+        <div class="token-box"><span class="tk-label">Cache R</span><span class="tk-value" id="tk-cr">—</span></div>
+        <div class="token-box"><span class="tk-label">Cache W</span><span class="tk-value" id="tk-cw">—</span></div>
+      </div>
+      <div class="calls-badge"><strong id="today-calls">0</strong> appels API</div>
+    </div>
+    <div class="card">
+      <div class="card-title">7 derniers jours — coût ($)</div>
+      <div class="chart-wrap"><canvas id="chart-daily"></canvas></div>
+    </div>
+    <div class="card">
+      <div class="card-title">Répartition par modèle</div>
+      <div class="chart-wrap"><canvas id="chart-models"></canvas></div>
+    </div>
+  </div>
+
+  <div class="live-card">
+    <div class="live-header">
+      <div class="card-title">Flux live — appels API</div>
+      <span id="feed-count">0 appels</span>
+    </div>
+    <div id="live-feed">
+      <div style="padding:20px;text-align:center;color:#ccc;font-size:11px">En attente d'appels API…</div>
+    </div>
+  </div>
+</main>
+</div>
+
+<!-- ══ TAB SESSIONS ═══════════════════════════════════════ -->
+<div id="tab-sessions" class="tab-content">
+<main>
+
+  <!-- Graphe évolution -->
+  <div class="card" id="sessions-chart-card">
+    <div class="chart-card-header">
+      <div class="card-title">Évolution du coût des sessions</div>
+      <div class="chart-toggle">
+        <button class="ctoggle active" data-mode="daily">Jours</button>
+        <button class="ctoggle" data-mode="hourly">Heures</button>
+      </div>
+    </div>
+    <div class="chart-sessions-wrap"><canvas id="chart-sessions"></canvas></div>
+  </div>
+
+  <div class="sessions-filters">
+    <div class="filter-group">
+      <span class="filter-label">Fenêtre</span>
+      <select class="filter-select" id="sess-days">
+        <option value="1">Aujourd'hui (1j)</option>
+        <option value="7" selected>7 jours</option>
+        <option value="14">14 jours</option>
+        <option value="30">30 jours</option>
+      </select>
+    </div>
+    <div class="filter-group">
+      <span class="filter-label">Projet</span>
+      <input class="filter-input" id="sess-project" placeholder="Filtrer par projet…" />
+    </div>
+    <button id="btn-load-sessions">Charger</button>
+    <span id="sessions-summary"></span>
+  </div>
+
+  <div id="sessions-loading"><div class="spinner" style="margin:0 auto 8px"></div>Chargement des sessions…</div>
+
+  <div class="sessions-wrap">
+    <table class="sessions-table" id="sessions-table">
+      <thead>
+        <tr>
+          <th></th>
+          <th>Date</th>
+          <th>UUID</th>
+          <th>Modèle</th>
+          <th class="num">Input</th>
+          <th class="num">Output</th>
+          <th class="num">Cache R</th>
+          <th class="num">Cache W</th>
+          <th class="num">Total</th>
+          <th class="num">Coût</th>
+          <th class="num">Brut $</th>
+          <th class="num">Δ moy</th>
+          <th>Projet</th>
+          <th>Titre</th>
+        </tr>
+      </thead>
+      <tbody id="sessions-body">
+        <tr><td colspan="14" style="padding:32px;text-align:center;color:#ccc">Cliquez sur "Charger" pour afficher les sessions</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Chronologie coût par session -->
+  <div class="card" id="timeline-card">
+    <div class="card-title">Chronologie — coût par session (ordre chronologique)</div>
+    <div class="sessions-wrap">
+      <table class="sessions-table timeline-table">
+        <thead>
+          <tr>
+            <th class="num">#</th>
+            <th>Date</th>
+            <th>Modèle</th>
+            <th>Titre de session</th>
+            <th class="num">Coût</th>
+            <th class="num">Cumulé</th>
+            <th>Progression</th>
+            <th class="num">Agents</th>
+          </tr>
+        </thead>
+        <tbody id="timeline-body">
+          <tr><td colspan="8" style="padding:16px;text-align:center;color:#ccc">—</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</main>
+</div>
+
+<script>
+// ── Helpers ──────────────────────────────────────────────
+const fmtTok = n => n >= 1e9 ? (n/1e9).toFixed(1)+'G' : n >= 1e6 ? (n/1e6).toFixed(1)+'M' : n >= 1e3 ? (n/1e3).toFixed(0)+'k' : String(n||0);
+const fmtCost = c => {
+  if (c >= 10)    return '$' + c.toFixed(2);
+  if (c >= 1)     return '$' + c.toFixed(3);
+  if (c >= 0.01)  return '$' + c.toFixed(4);
+  if (c >= 0.001) return '¢' + (c*100).toFixed(2);
+  return '¢' + (c*100).toFixed(3);
+};
+const fmtDate = ts => new Date(ts).toLocaleString('fr-FR', { month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit' });
+const fmtTime = ts => new Date(ts).toLocaleTimeString('fr-FR', { hour:'2-digit', minute:'2-digit', second:'2-digit' });
+const escHtml = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+const $ = id => document.getElementById(id);
+
+const MODEL_COLORS = {
+  'claude-opus-4-7':'#7c3aed','claude-opus-4-6':'#7c3aed','claude-opus-4-5':'#7c3aed','claude-opus-4':'#9d4edd',
+  'claude-sonnet-4-6':'#2563eb',
+  'claude-haiku-4-5-20251001':'#059669','claude-haiku-4-5':'#059669',
+};
+const MODEL_SHORT = {
+  'claude-opus-4-7':'Opus 4.7','claude-opus-4-6':'Opus 4.6','claude-opus-4-5':'Opus 4.5','claude-opus-4':'Opus 4.0',
+  'claude-sonnet-4-6':'Sonnet 4.6',
+  'claude-haiku-4-5-20251001':'Haiku 4.5','claude-haiku-4-5':'Haiku 4.5',
+};
+const modelColor = m => MODEL_COLORS[m] || '#9ca3af';
+const modelShort = m => MODEL_SHORT[m] || m.replace('claude-','').replace(/-\d{8}$/,'');
+
+// Régression linéaire simple
+function linearRegression(values) {
+  const n = values.length;
+  if (n < 2) return values.map(v => v);
+  const xs = values.map((_,i) => i);
+  const sumX  = xs.reduce((a,b) => a+b, 0);
+  const sumY  = values.reduce((a,b) => a+b, 0);
+  const sumXY = xs.reduce((a,x,i) => a + x*values[i], 0);
+  const sumX2 = xs.reduce((a,x) => a + x*x, 0);
+  const denom = n*sumX2 - sumX*sumX;
+  if (!denom) return values.map(v => v);
+  const slope     = (n*sumXY - sumX*sumY) / denom;
+  const intercept = (sumY - slope*sumX) / n;
+  return xs.map(x => Math.max(0, slope*x + intercept));
+}
+
+// ── State ────────────────────────────────────────────────
+let today       = { costUSD:0, input:0, output:0, cacheRead:0, cacheWrite:0, calls:0 };
+let feedItems   = [];
+let sessionsData= [];
+let chartMode   = 'daily';
+let sessionsChart = null;
+
+// ── Tabs ─────────────────────────────────────────────────
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+    btn.classList.add('active');
+    $('tab-' + btn.dataset.tab).classList.add('active');
+  });
+});
+
+// ── Dashboard ────────────────────────────────────────────
+function renderToday() {
+  $('today-cost').textContent  = fmtCost(today.costUSD);
+  $('header-cost').textContent = 'Aujourd\'hui : ' + fmtCost(today.costUSD);
+  $('tk-input').textContent    = fmtTok(today.input);
+  $('tk-output').textContent   = fmtTok(today.output);
+  $('tk-cr').textContent       = fmtTok(today.cacheRead);
+  $('tk-cw').textContent       = fmtTok(today.cacheWrite);
+  $('today-calls').textContent = today.calls;
+}
+
+function buildFeedRow(c, isNew = false) {
+  const hasCR = c.cacheRead  > 0;
+  const hasCW = c.cacheWrite > 0;
+
+  // Ligne 2 : session UUID + titre
+  let sessionLine = '';
+  if (c.sessionId) {
+    const uuid  = `<span class="f-uuid">${c.sessionId.slice(0,8)}</span>`;
+    const sep   = `<span class="f-sep"> · </span>`;
+    const title = c.sessionTitle
+      ? `<span class="f-title">${escHtml(c.sessionTitle.slice(0,80))}</span>`
+      : `<span class="f-notitle">titre non encore chargé</span>`;
+    sessionLine = `<div class="feed-session-line">${uuid}${sep}${title}</div>`;
+  }
+
+  return `<div class="feed-row${isNew ? ' new-row' : ''}">
+    <div class="feed-main">
+      <span class="ft">${fmtTime(c.ts)}</span>
+      <span class="fm" style="color:${modelColor(c.model)}">${modelShort(c.model)}</span>
+      <span class="fp">${escHtml(c.project)}</span>
+      <span class="fc">${fmtCost(c.cost)}</span>
+      <span class="fo">${fmtTok(c.output)}↑</span>
+      <span class="fcr">${hasCR ? fmtTok(c.cacheRead)+' CR' : '<span class="nil">—</span>'}</span>
+      <span class="fcw">${hasCW ? fmtTok(c.cacheWrite)+' CW' : '<span class="nil">—</span>'}</span>
+    </div>
+    ${sessionLine}
+  </div>`;
+}
+
+function renderFeed(highlightFirst = false) {
+  if (!feedItems.length) {
+    $('live-feed').innerHTML = '<div style="padding:20px;text-align:center;color:#ccc;font-size:11px">En attente d\'appels API…</div>';
+    $('feed-count').textContent = '0 appels';
+    return;
+  }
+  $('feed-count').textContent = feedItems.length + (feedItems.length >= 50 ? '+' : '') + ' appels';
+  $('live-feed').innerHTML = feedItems.map((c, i) => buildFeedRow(c, highlightFirst && i === 0)).join('');
+}
+
+let dailyChart = null, modelChart = null;
+
+function initCharts(stats) {
+  const days = stats.daily.slice(-7);
+  const todayStr = new Date().toISOString().slice(0,10);
+
+  dailyChart = new Chart($('chart-daily').getContext('2d'), {
+    type: 'bar',
+    data: {
+      labels: days.map(d => d.date === todayStr ? 'Auj.' : d.date.slice(5).replace('-','/')),
+      datasets: [{ data: days.map(d => +d.costUSD.toFixed(5)),
+        backgroundColor: days.map(d => d.date === todayStr ? '#1a1a1a22' : '#2563eb14'),
+        borderColor: days.map(d => d.date === todayStr ? '#1a1a1a' : '#2563eb'),
+        borderWidth: 2, borderRadius: 4 }],
+    },
+    options: { responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{display:false}, tooltip:{ callbacks:{ label: ctx => ` ${fmtCost(ctx.raw)} — ${days[ctx.dataIndex]?.calls||0} appels` }}},
+      scales:{ y:{beginAtZero:true, ticks:{callback: v=>'$'+v.toFixed(2), font:{size:10}}, grid:{color:'#f0ebe1'}}, x:{ticks:{font:{size:11}}, grid:{display:false}} }
+    },
+  });
+
+  const models = Object.entries(stats.byModel).filter(([,v]) => v.costUSD > 0.000001).sort((a,b) => b[1].costUSD - a[1].costUSD);
+  modelChart = new Chart($('chart-models').getContext('2d'), {
+    type: 'doughnut',
+    data: { labels: models.map(([m]) => modelShort(m)), datasets: [{
+      data: models.map(([,v]) => +v.costUSD.toFixed(6)),
+      backgroundColor: models.map(([m]) => modelColor(m)), borderWidth:3, borderColor:'#fff',
+    }]},
+    options: { responsive:true, maintainAspectRatio:false, cutout:'60%',
+      plugins:{ legend:{position:'bottom', labels:{font:{size:11}, padding:8, boxWidth:10, color:'#555'}},
+        tooltip:{ callbacks:{ label: ctx => ` ${ctx.label} — ${fmtCost(models[ctx.dataIndex][1].costUSD)} (${models[ctx.dataIndex][1].calls} appels)` }}
+      }
+    },
+  });
+}
+
+async function loadStats() {
+  const res   = await fetch('/api/stats?days=7');
+  const stats = await res.json();
+  today     = { ...stats.today };
+  feedItems = (stats.liveFeed || []).slice(0, 50);
+  renderToday();
+  renderFeed();
+  initCharts(stats);
+  $('loading').style.display = 'none';
+}
+
+// ── SSE ──────────────────────────────────────────────────
+const todayStr = () => new Date().toISOString().slice(0,10);
+let sseRetry = null;
+function connectSSE() {
+  const es = new EventSource('/api/events');
+  es.onopen = () => { $('live-dot').classList.add('connected'); $('live-label').textContent = 'Live'; };
+  es.onmessage = e => {
+    let d; try { d = JSON.parse(e.data); } catch { return; }
+    if (d.type !== 'call') return;
+    if (d.ts?.slice(0,10) === todayStr()) {
+      today.costUSD += d.cost; today.input += d.input; today.output += d.output;
+      today.cacheRead += d.cacheRead; today.cacheWrite += d.cacheWrite; today.calls++;
+      renderToday();
+    }
+    feedItems.unshift(d);
+    if (feedItems.length > 50) feedItems.pop();
+    renderFeed(true);
+  };
+  es.onerror = () => {
+    $('live-dot').classList.remove('connected'); $('live-label').textContent = 'Reconnexion…';
+    es.close();
+    if (sseRetry) clearTimeout(sseRetry);
+    sseRetry = setTimeout(connectSSE, 3000);
+  };
+}
+
+// ── Sessions chart ────────────────────────────────────────
+function buildSessionsChart(sessions) {
+  if (sessionsChart) { sessionsChart.destroy(); sessionsChart = null; }
+  const card = $('sessions-chart-card');
+  if (!sessions.length) { card.style.display = 'none'; return; }
+  card.style.display = 'block';
+
+  // Groupement par jour ou par heure
+  const map = {};
+  for (const s of sessions) {
+    const d = new Date(s.mtime);
+    let key, label;
+    if (chartMode === 'daily') {
+      key   = d.toISOString().slice(0,10);
+      const [yr, mo, dy] = key.split('-');
+      const today0 = new Date().toISOString().slice(0,10);
+      label = key === today0 ? 'Auj.' : `${parseInt(dy)}/${parseInt(mo)}`;
+    } else {
+      const day = d.toISOString().slice(0,10);
+      const h   = String(d.getHours()).padStart(2,'0');
+      key   = `${day}T${h}`;
+      const [, mo, dy] = day.split('-');
+      label = `${parseInt(dy)}/${parseInt(mo)} ${h}h`;
+    }
+    map[key] ??= { key, label, costUSD: 0, count: 0 };
+    map[key].costUSD += s.cost;
+    map[key].count++;
+  }
+  const groups = Object.values(map).sort((a,b) => a.key.localeCompare(b.key));
+  const values = groups.map(g => +g.costUSD.toFixed(4));
+  const trend  = linearRegression(values);
+
+  sessionsChart = new Chart($('chart-sessions').getContext('2d'), {
+    data: {
+      labels: groups.map(g => g.label),
+      datasets: [
+        {
+          type: 'bar', label: 'Coût ($)', data: values, order: 2,
+          backgroundColor: '#2563eb14', borderColor: '#2563eb', borderWidth: 2, borderRadius: 4,
+        },
+        {
+          type: 'line', label: 'Tendance', data: trend, order: 1,
+          borderColor: '#cd0000', borderWidth: 2, borderDash: [6, 4],
+          pointRadius: 0, tension: 0.3, fill: false,
+        },
+      ],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          display: true, position: 'top', align: 'end',
+          labels: { font:{size:10}, boxWidth:20, padding:12, color:'#888',
+            filter: item => item.datasetIndex === 1, // n'afficher que "Tendance"
+          },
+        },
+        tooltip: { callbacks: {
+          label: ctx => ctx.datasetIndex === 0
+            ? ` ${fmtCost(ctx.raw)} — ${groups[ctx.dataIndex]?.count||0} sessions`
+            : ` tendance : ${fmtCost(ctx.raw)}`,
+        }},
+      },
+      scales: {
+        y: { beginAtZero:true, ticks:{ callback: v => fmtCost(v), font:{size:10} }, grid:{color:'#f0ebe1'} },
+        x: { ticks:{ font:{size:10}, maxRotation: chartMode === 'hourly' ? 45 : 0 }, grid:{display:false} },
+      },
+    },
+  });
+}
+
+// Toggle Jours / Heures
+document.querySelectorAll('.ctoggle').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.ctoggle').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    chartMode = btn.dataset.mode;
+    if (sessionsData.length) buildSessionsChart(sessionsData);
+  });
+});
+
+// ── Sessions table ────────────────────────────────────────
+function fmtDeltaHtml(pct) {
+  if (!isFinite(pct)) return '<span class="delta-flat">—</span>';
+  const sign = pct >= 0 ? '+' : '';
+  const txt  = `${sign}${pct.toFixed(0)}%`;
+  if (pct >= 50)  return `<span class="delta-pos-hi">${txt}</span>`;
+  if (pct >= 10)  return `<span class="delta-pos-lo">${txt}</span>`;
+  if (pct <= -50) return `<span class="delta-neg-hi">${txt}</span>`;
+  if (pct <= -10) return `<span class="delta-neg-lo">${txt}</span>`;
+  return `<span class="delta-flat">${txt}</span>`;
+}
+
+function renderSessions(sessions) {
+  buildSessionsChart(sessions);
+  renderTimeline(sessions);
+
+  const body = $('sessions-body');
+  if (!sessions.length) {
+    body.innerHTML = '<tr><td colspan="14" style="padding:32px;text-align:center;color:#ccc">Aucune session dans cette fenêtre</td></tr>';
+    $('sessions-summary').textContent = '';
+    return;
+  }
+
+  const total    = sessions.reduce((s,x) => s+x.cost, 0);
+  const avg      = total / sessions.length;
+  const totalBrut = sessions.reduce((s,x) => s+x.costNoCache, 0);
+
+  const rows = sessions.map((s, i) => {
+    const pct     = avg > 0 ? ((s.cost - avg) / avg) * 100 : 0;
+    const hasSubs = s.subagents?.length > 0;
+    const subTotal = s.subagents?.reduce((a,sa) => a+sa.cost, 0) || 0;
+
+    const subRows = hasSubs ? `<tr class="detail-row" id="detail-${i}">
+      <td colspan="14"><div class="detail-inner"><table>
+        <thead><tr>
+          <th>Agent</th><th>Description</th><th>Modèle</th>
+          <th class="num">In</th><th class="num">Out</th>
+          <th class="num">CR</th><th class="num">CW</th>
+          <th class="num">Total</th><th class="num">Coût</th>
+        </tr></thead>
+        <tbody>${[...s.subagents].sort((a,b)=>b.cost-a.cost).map(sa => `<tr>
+          <td style="color:${modelColor(sa.model)};font-weight:600">${escHtml(sa.agentType)}</td>
+          <td style="color:#666;max-width:200px;overflow:hidden;text-overflow:ellipsis">${escHtml((sa.description||'').slice(0,80))}</td>
+          <td style="color:${modelColor(sa.model)}">${modelShort(sa.model)}</td>
+          <td class="num">${fmtTok(sa.usage.in)}</td>
+          <td class="num">${fmtTok(sa.usage.out)}</td>
+          <td class="num" style="color:#059669">${sa.usage.cr > 0 ? fmtTok(sa.usage.cr) : '—'}</td>
+          <td class="num" style="color:#d97706">${sa.usage.cw > 0 ? fmtTok(sa.usage.cw) : '—'}</td>
+          <td class="num">${fmtTok(sa.total)}</td>
+          <td class="num" style="font-weight:700">${fmtCost(sa.cost)}</td>
+        </tr>`).join('')}</tbody>
+      </table>
+      <div style="font-size:10px;color:#aaa;margin-top:6px;text-align:right">
+        Sous-agents : ${fmtCost(subTotal)} &nbsp;/&nbsp; Session totale : ${fmtCost(s.cost)}
+      </div></div></td>
+    </tr>` : '';
+
+    return `<tr class="session-row" data-idx="${i}" title="${escHtml(s.title)}">
+      <td><span class="expand-icon">${hasSubs ? '▶' : ''}</span></td>
+      <td class="tbl-at">${fmtDate(s.mtime)}</td>
+      <td class="tbl-uuid">${s.uuid.slice(0,8)}</td>
+      <td class="tbl-model" style="color:${modelColor(s.parentModel)}">${modelShort(s.parentModel)}</td>
+      <td class="num">${fmtTok(s.usage.in)}</td>
+      <td class="num">${fmtTok(s.usage.out)}</td>
+      <td class="num" style="color:#059669">${s.usage.cr > 0 ? fmtTok(s.usage.cr) : '<span style="color:#e8e3d9">—</span>'}</td>
+      <td class="num" style="color:#d97706">${s.usage.cw > 0 ? fmtTok(s.usage.cw) : '<span style="color:#e8e3d9">—</span>'}</td>
+      <td class="num">${fmtTok(s.total)}</td>
+      <td class="num tbl-cost">${fmtCost(s.cost)}</td>
+      <td class="num tbl-brut">${fmtCost(s.costNoCache)}</td>
+      <td class="num">${fmtDeltaHtml(pct)}</td>
+      <td class="tbl-proj">${escHtml(s.project)}</td>
+      <td class="tbl-title">${escHtml(s.title.slice(0,70))}</td>
+    </tr>${subRows}`;
+  }).join('');
+
+  const summaryRow = `<tr class="summary-row">
+    <td></td>
+    <td colspan="3" style="font-size:11px;color:#666">Total — ${sessions.length} sessions</td>
+    <td class="num">${fmtTok(sessions.reduce((s,x)=>s+x.usage.in,0))}</td>
+    <td class="num">${fmtTok(sessions.reduce((s,x)=>s+x.usage.out,0))}</td>
+    <td class="num">${fmtTok(sessions.reduce((s,x)=>s+x.usage.cr,0))}</td>
+    <td class="num">${fmtTok(sessions.reduce((s,x)=>s+x.usage.cw,0))}</td>
+    <td class="num">${fmtTok(sessions.reduce((s,x)=>s+x.total,0))}</td>
+    <td class="num tbl-cost">${fmtCost(total)}</td>
+    <td class="num tbl-brut">${fmtCost(totalBrut)}</td>
+    <td colspan="3"></td>
+  </tr>`;
+
+  body.innerHTML = rows + summaryRow;
+
+  body.querySelectorAll('.session-row').forEach(row => {
+    row.addEventListener('click', () => {
+      const detail = $('detail-' + row.dataset.idx);
+      if (!detail) return;
+      const open = detail.classList.toggle('open');
+      row.classList.toggle('expanded', open);
+    });
+  });
+
+  $('sessions-summary').textContent = `${sessions.length} sessions · moy. ${fmtCost(avg)} · total ${fmtCost(total)}`;
+}
+
+function renderTimeline(sessions) {
+  const card = $('timeline-card');
+  const body = $('timeline-body');
+  if (!sessions.length) { card.style.display = 'none'; return; }
+  card.style.display = 'block';
+
+  // Tri chronologique (plus ancien → plus récent)
+  const sorted = [...sessions].sort((a, b) => a.mtime - b.mtime);
+  const totalCost = sorted.reduce((s, x) => s + x.cost, 0);
+  let cumul = 0;
+
+  body.innerHTML = sorted.map((s, i) => {
+    cumul += s.cost;
+    const pct = totalCost > 0 ? (cumul / totalCost) * 100 : 0;
+    // Couleur cumulé : vire vers rouge au-delà de 80% du total
+    const cumulColor = pct > 80 ? '#cd0000' : pct > 50 ? '#d97706' : '#1a1a1a';
+    return `<tr>
+      <td class="num" style="color:#bbb;font-size:10px">${i + 1}</td>
+      <td class="tbl-at">${fmtDate(s.mtime)}</td>
+      <td style="color:${modelColor(s.parentModel)};font-weight:600;white-space:nowrap">${modelShort(s.parentModel)}</td>
+      <td class="t-title">${escHtml(s.title.slice(0, 65))}</td>
+      <td class="num tbl-cost">${fmtCost(s.cost)}</td>
+      <td class="num cumul-cell" style="color:${cumulColor}">${fmtCost(cumul)}</td>
+      <td>
+        <div class="cumul-bar-wrap">
+          <div class="cumul-bar">
+            <div class="cumul-bar-fill" style="width:${pct.toFixed(1)}%;background:${cumulColor}88"></div>
+          </div>
+          <span style="font-size:10px;color:#aaa;min-width:32px">${pct.toFixed(0)}%</span>
+        </div>
+      </td>
+      <td class="num" style="color:#888">${s.subagents?.length || 0}</td>
+    </tr>`;
+  }).join('');
+}
+
+async function loadSessionsTab() {
+  const days    = parseInt($('sess-days').value, 10);
+  const project = $('sess-project').value.trim() || null;
+  $('sessions-loading').style.display = 'block';
+  $('sessions-body').innerHTML = '';
+  try {
+    const params = new URLSearchParams({ days });
+    if (project) params.set('project', project);
+    const res   = await fetch('/api/sessions?' + params);
+    sessionsData = await res.json();
+    renderSessions(sessionsData);
+  } catch (e) {
+    $('sessions-body').innerHTML = `<tr><td colspan="14" style="padding:24px;text-align:center;color:#cd0000">Erreur : ${escHtml(String(e))}</td></tr>`;
+  } finally {
+    $('sessions-loading').style.display = 'none';
+  }
+}
+
+$('btn-load-sessions').addEventListener('click', loadSessionsTab);
+$('sess-days').addEventListener('change', loadSessionsTab);
+
+// ── Boot ─────────────────────────────────────────────────
+loadStats().then(connectSSE).catch(err => {
+  $('loading').innerHTML = `<div style="color:#cd0000">${escHtml(err.message)}</div>`;
+});
+</script>
+</body>
+</html>

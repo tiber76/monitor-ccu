@@ -1,0 +1,12 @@
+{
+  "name": "monitor-ccu",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Local dashboard for Claude Code token/cost monitoring — real-time SSE + sessions view",
+  "scripts": {
+    "start": "node server.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
