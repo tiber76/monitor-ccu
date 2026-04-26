@@ -5,7 +5,7 @@ import { createServer } from 'node:http';
 import { readFileSync, statSync, readdirSync, watchFile } from 'node:fs';
 import { createReadStream } from 'node:fs';
 import { createInterface } from 'node:readline';
-import { join, dirname } from 'node:path';
+import { join, dirname, basename, relative, sep } from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 
@@ -39,10 +39,9 @@ function loadLabels() {
   try { return JSON.parse(readFileSync(LABELS_PATH, 'utf8')); } catch { return {}; }
 }
 
-// Extrait un nom lisible depuis le chemin encodé du projet
+// Extrait un nom lisible depuis le chemin encodé du projet (cross-platform)
 function projectLabel(filePath) {
-  const rel = filePath.slice(PROJECTS_ROOT.length + 1);
-  const encoded = rel.split('/')[0];
+  const encoded = relative(PROJECTS_ROOT, filePath).split(sep)[0];
   const parts = encoded.split('-').filter(Boolean);
   return parts[parts.length - 1] || encoded;
 }
@@ -220,7 +219,7 @@ async function scanSubagents(sessionDir) {
 }
 
 async function parseSessionFull(filePath, projEncoded) {
-  const uuid = filePath.replace(/\.jsonl$/, '').split('/').pop();
+  const uuid = basename(filePath, '.jsonl');
   let mtime = 0;
   try { mtime = statSync(filePath).mtimeMs; } catch {}
 
@@ -382,7 +381,7 @@ async function readNewLines(filePath) {
   if (st.size <= lastSize) { filePositions.set(filePath, st.size); return; }
 
   const proj    = projectLabel(filePath);
-  const uuid    = filePath.replace(/\.jsonl$/, '').split('/').pop();
+  const uuid    = basename(filePath, '.jsonl');
   const stream  = createReadStream(filePath, { start: lastSize });
   filePositions.set(filePath, st.size);
 
