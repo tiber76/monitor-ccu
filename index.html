@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Claude Code Usage Monitor</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><defs><linearGradient id='g' x1='0' y1='0' x2='64' y2='64' gradientUnits='userSpaceOnUse'><stop offset='0%25' stop-color='%23cd5c2c'/><stop offset='100%25' stop-color='%23a02d1c'/></linearGradient></defs><rect width='64' height='64' rx='14' fill='url(%23g)'/><path d='M44 22 A 14 14 0 1 0 44 42' stroke='%23fbfaf6' stroke-width='6' stroke-linecap='round' fill='none'/><path d='M16 32 L24 32 L28 24 L34 40 L38 28 L42 34 L48 32' stroke='%23fbfaf6' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round' fill='none'/><circle cx='48' cy='32' r='2.6' fill='%23fbfaf6'/></svg>">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
 <style>
 :root {
@@ -45,8 +46,8 @@ header {
   border-bottom: 1px solid var(--line);
   position: sticky; top: 0; z-index: 20;
 }
-.brand { font-weight: 700; font-size: 14px; letter-spacing: -0.3px; display: flex; align-items: center; gap: 8px; }
-.brand::before { content: ''; width: 8px; height: 8px; background: var(--accent); border-radius: 2px; box-shadow: 0 0 0 3px rgba(205,0,0,.15); }
+.brand { font-weight: 700; font-size: 14px; letter-spacing: -0.3px; display: flex; align-items: center; gap: 9px; }
+.brand-logo { width: 22px; height: 22px; flex-shrink: 0; border-radius: 5px; box-shadow: 0 1px 2px rgba(31,24,12,.15), 0 0 0 1px rgba(31,24,12,.04); }
 .sep { color: var(--line); }
 .header-costs { display: flex; align-items: center; gap: 14px; font-size: 12px; color: var(--text-soft); font-variant-numeric: tabular-nums; }
 .header-costs strong { color: var(--text); font-weight: 600; }
@@ -411,7 +412,21 @@ main { padding: 20px 26px; max-width: 1500px; margin: 0 auto; }
 <div id="loading"><div class="spinner"></div><span data-i18n="loadingData">Chargement des données…</span></div>
 
 <header>
-  <span class="brand">Claude Code Usage Monitor</span>
+  <span class="brand">
+    <svg class="brand-logo" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <linearGradient id="brand-g" x1="0" y1="0" x2="64" y2="64" gradientUnits="userSpaceOnUse">
+          <stop offset="0%" stop-color="#cd5c2c"/>
+          <stop offset="100%" stop-color="#a02d1c"/>
+        </linearGradient>
+      </defs>
+      <rect width="64" height="64" rx="14" fill="url(#brand-g)"/>
+      <path d="M44 22 A 14 14 0 1 0 44 42" stroke="#fbfaf6" stroke-width="6" stroke-linecap="round" fill="none"/>
+      <path d="M16 32 L24 32 L28 24 L34 40 L38 28 L42 34 L48 32" stroke="#fbfaf6" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+      <circle cx="48" cy="32" r="2.6" fill="#fbfaf6"/>
+    </svg>
+    Claude Code Usage Monitor
+  </span>
   <span class="sep">·</span>
   <div class="header-costs">
     <span><span class="label" data-i18n="headerForfait">Forfait</span> <strong id="header-cost-plan">…</strong></span>
