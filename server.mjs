@@ -25,15 +25,19 @@ const PRICING = {
   'claude-haiku-4-5':          { in: 1,    out: 5,   cw: 1.25,  cr: 0.1  },
 };
 
+// Renvoie deux coûts :
+//  - full : coût API théorique (input + output + cache write + cache read) — ce que facturerait l'API
+//  - plan : coût "forfait" Claude Code — exclut le cache read, qui n'est PAS facturé sur l'abonnement
 function calcCost(u, model) {
   const p = PRICING[model];
-  if (!p) return 0;
-  return (
-    (u.input_tokens || 0) * p.in +
-    (u.output_tokens || 0) * p.out +
-    (u.cache_creation_input_tokens || 0) * p.cw +
-    (u.cache_read_input_tokens || 0) * p.cr
-  ) / 1e6;
+  if (!p) return { full: 0, plan: 0 };
+  const inT  = u.input_tokens || 0;
+  const outT = u.output_tokens || 0;
+  const cwT  = u.cache_creation_input_tokens || 0;
+  const crT  = u.cache_read_input_tokens || 0;
+  const full = (inT*p.in + outT*p.out + cwT*p.cw + crT*p.cr) / 1e6;
+  const plan = (inT*p.in + outT*p.out + cwT*p.cw)            / 1e6;
+  return { full, plan };
 }
 
 function loadLabels() {
@@ -91,10 +95,16 @@ async function parseJsonlSince(filePath, sinceMs) {
       const ts = r.timestamp ? new Date(r.timestamp).getTime() : 0;
       if (sinceMs && ts && ts < sinceMs) continue;
       const model = r.message?.model || 'unknown';
+      const c = calcCost(u, model);
+      const inT = u.input_tokens || 0;
+      const cwT = u.cache_creation_input_tokens || 0;
+      const crT = u.cache_read_input_tokens || 0;
       calls.push({
         ts: r.timestamp || null,
         model,
-        cost: calcCost(u, model),
+        cost: c.full,
+        costPlan: c.plan,
+        contextSize: inT + cwT + crT, // tokens envoyés au modèle à ce tour
         input: u.input_tokens || 0,
         output: u.output_tokens || 0,
         cacheWrite: u.cache_creation_input_tokens || 0,
@@ -130,31 +140,32 @@ function buildStats(calls) {
   const todayCalls = calls.filter(c => c.ts && new Date(c.ts).getTime() >= todayMs);
 
   const today = todayCalls.reduce((a, c) => ({
-    costUSD: a.costUSD + c.cost, input: a.input + c.input, output: a.output + c.output,
+    costUSD: a.costUSD + c.cost, costPlanUSD: a.costPlanUSD + c.costPlan,
+    input: a.input + c.input, output: a.output + c.output,
     cacheRead: a.cacheRead + c.cacheRead, cacheWrite: a.cacheWrite + c.cacheWrite, calls: a.calls + 1,
-  }), { costUSD: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, calls: 0 });
+  }), { costUSD: 0, costPlanUSD: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, calls: 0 });
 
   const dailyMap = {};
   for (const c of calls) {
     if (!c.ts) continue;
     const d = c.ts.slice(0, 10);
-    dailyMap[d] ??= { date: d, costUSD: 0, calls: 0 };
-    dailyMap[d].costUSD += c.cost; dailyMap[d].calls++;
+    dailyMap[d] ??= { date: d, costUSD: 0, costPlanUSD: 0, calls: 0 };
+    dailyMap[d].costUSD += c.cost; dailyMap[d].costPlanUSD += c.costPlan; dailyMap[d].calls++;
   }
 
   const byModel = {};
   for (const c of calls) {
     const m = c.model || 'unknown';
-    byModel[m] ??= { costUSD: 0, calls: 0, tokens: 0 };
-    byModel[m].costUSD += c.cost; byModel[m].calls++;
+    byModel[m] ??= { costUSD: 0, costPlanUSD: 0, calls: 0, tokens: 0 };
+    byModel[m].costUSD += c.cost; byModel[m].costPlanUSD += c.costPlan; byModel[m].calls++;
     byModel[m].tokens += c.input + c.output + c.cacheRead + c.cacheWrite;
   }
 
   const byProject = {};
   for (const c of calls) {
     const p = c.project || 'unknown';
-    byProject[p] ??= { costUSD: 0, calls: 0 };
-    byProject[p].costUSD += c.cost; byProject[p].calls++;
+    byProject[p] ??= { costUSD: 0, costPlanUSD: 0, calls: 0 };
+    byProject[p].costUSD += c.cost; byProject[p].costPlanUSD += c.costPlan; byProject[p].calls++;
   }
 
   return {
@@ -171,7 +182,8 @@ function buildStats(calls) {
 async function parseJsonlFull(filePath) {
   const usage = { in: 0, out: 0, cw: 0, cr: 0 };
   const byModel = {};
-  let cost = 0, costNoCache = 0;
+  let cost = 0, costPlan = 0, costNoCache = 0;
+  let maxContext = 0, sumContext = 0, callCount = 0;
   try {
     const rl = createInterface({ input: createReadStream(filePath), crlfDelay: Infinity });
     for await (const line of rl) {
@@ -182,19 +194,23 @@ async function parseJsonlFull(filePath) {
       const model = r.message?.model || 'unknown';
       const inT = u.input_tokens || 0, outT = u.output_tokens || 0;
       const cwT = u.cache_creation_input_tokens || 0, crT = u.cache_read_input_tokens || 0;
+      const ctx = inT + cwT + crT;
+      if (ctx > maxContext) maxContext = ctx;
+      sumContext += ctx; callCount++;
       usage.in += inT; usage.out += outT; usage.cw += cwT; usage.cr += crT;
-      byModel[model] ??= { in: 0, out: 0, cw: 0, cr: 0, cost: 0, costNoCache: 0 };
+      byModel[model] ??= { in: 0, out: 0, cw: 0, cr: 0, cost: 0, costPlan: 0, costNoCache: 0 };
       byModel[model].in += inT; byModel[model].out += outT; byModel[model].cw += cwT; byModel[model].cr += crT;
       const p = PRICING[model];
       if (p) {
-        const c1 = (inT*p.in + outT*p.out + cwT*p.cw + crT*p.cr) / 1e6;
-        const c2 = ((inT+cwT+crT)*p.in + outT*p.out) / 1e6;
-        cost += c1; costNoCache += c2;
-        byModel[model].cost += c1; byModel[model].costNoCache += c2;
+        const cFull = (inT*p.in + outT*p.out + cwT*p.cw + crT*p.cr) / 1e6;       // API théorique
+        const cPlan = (inT*p.in + outT*p.out + cwT*p.cw) / 1e6;                  // Forfait Claude Code (cache read non facturé)
+        const cNoC  = ((inT+cwT+crT)*p.in + outT*p.out) / 1e6;                   // Si aucun cache (réf de comparaison)
+        cost += cFull; costPlan += cPlan; costNoCache += cNoC;
+        byModel[model].cost += cFull; byModel[model].costPlan += cPlan; byModel[model].costNoCache += cNoC;
       }
     }
   } catch {}
-  return { usage, byModel, cost, costNoCache };
+  return { usage, byModel, cost, costPlan, costNoCache, maxContext, avgContext: callCount ? sumContext / callCount : 0, callCount };
 }
 
 async function scanSubagents(sessionDir) {
@@ -226,8 +242,10 @@ async function parseSessionFull(filePath, projEncoded) {
 
   const usage = { in: 0, out: 0, cw: 0, cr: 0 };
   const byModel = {};
-  let cost = 0, costNoCache = 0;
+  let cost = 0, costPlan = 0, costNoCache = 0;
   let firstPrompt = null, userTitle = null;
+  let lastEventTs = 0;
+  let maxContext = 0, sumContext = 0, callCount = 0;
 
   try {
     const rl = createInterface({ input: createReadStream(filePath), crlfDelay: Infinity });
@@ -253,20 +271,28 @@ async function parseSessionFull(filePath, projEncoded) {
         if (firstPrompt) firstPrompt = firstPrompt.slice(0, 200);
       }
 
+      if (r.timestamp) {
+        const t = new Date(r.timestamp).getTime();
+        if (t > lastEventTs) lastEventTs = t;
+      }
       const u = r.message?.usage;
       if (!u) continue;
       const model = r.message?.model || 'unknown';
       const inT = u.input_tokens || 0, outT = u.output_tokens || 0;
       const cwT = u.cache_creation_input_tokens || 0, crT = u.cache_read_input_tokens || 0;
+      const ctx = inT + cwT + crT;
+      if (ctx > maxContext) maxContext = ctx;
+      sumContext += ctx; callCount++;
       usage.in += inT; usage.out += outT; usage.cw += cwT; usage.cr += crT;
-      byModel[model] ??= { in: 0, out: 0, cw: 0, cr: 0, cost: 0, costNoCache: 0 };
+      byModel[model] ??= { in: 0, out: 0, cw: 0, cr: 0, cost: 0, costPlan: 0, costNoCache: 0 };
       byModel[model].in += inT; byModel[model].out += outT; byModel[model].cw += cwT; byModel[model].cr += crT;
       const p = PRICING[model];
       if (p) {
-        const c1 = (inT*p.in + outT*p.out + cwT*p.cw + crT*p.cr) / 1e6;
-        const c2 = ((inT+cwT+crT)*p.in + outT*p.out) / 1e6;
-        cost += c1; costNoCache += c2;
-        byModel[model].cost += c1; byModel[model].costNoCache += c2;
+        const cFull = (inT*p.in + outT*p.out + cwT*p.cw + crT*p.cr) / 1e6;
+        const cPlan = (inT*p.in + outT*p.out + cwT*p.cw) / 1e6;
+        const cNoC  = ((inT+cwT+crT)*p.in + outT*p.out) / 1e6;
+        cost += cFull; costPlan += cPlan; costNoCache += cNoC;
+        byModel[model].cost += cFull; byModel[model].costPlan += cPlan; byModel[model].costNoCache += cNoC;
       }
     }
   } catch {}
@@ -277,10 +303,13 @@ async function parseSessionFull(filePath, projEncoded) {
   const subagents  = await scanSubagents(sessionDir);
   for (const sa of subagents) {
     for (const k of ['in','out','cw','cr']) usage[k] += sa.usage[k];
-    cost += sa.cost; costNoCache += sa.costNoCache;
+    cost += sa.cost; costPlan += sa.costPlan; costNoCache += sa.costNoCache;
+    if (sa.maxContext > maxContext) maxContext = sa.maxContext;
+    sumContext += (sa.avgContext || 0) * (sa.callCount || 0);
+    callCount  += (sa.callCount || 0);
     for (const [m, u] of Object.entries(sa.byModel)) {
-      byModel[m] ??= { in:0, out:0, cw:0, cr:0, cost:0, costNoCache:0 };
-      for (const k of ['in','out','cw','cr','cost','costNoCache']) byModel[m][k] += u[k];
+      byModel[m] ??= { in:0, out:0, cw:0, cr:0, cost:0, costPlan:0, costNoCache:0 };
+      for (const k of ['in','out','cw','cr','cost','costPlan','costNoCache']) byModel[m][k] += (u[k] || 0);
     }
   }
 
@@ -291,14 +320,20 @@ async function parseSessionFull(filePath, projEncoded) {
   return {
     uuid, mtime, project,
     title: title.slice(0, 200),
-    parentModel, usage, cost, costNoCache,
+    parentModel, usage, cost, costPlan, costNoCache,
+    lastEventTs: lastEventTs || mtime,
+    maxContext, avgContext: callCount ? sumContext / callCount : 0, callCount,
     total: usage.in + usage.out + usage.cw + usage.cr,
     subagents: subagents.map(sa => ({
       agentType:   sa.agentType,
       description: sa.description,
       model:       sa.model,
       cost:        sa.cost,
+      costPlan:    sa.costPlan,
       costNoCache: sa.costNoCache,
+      maxContext:  sa.maxContext,
+      avgContext:  sa.avgContext,
+      callCount:   sa.callCount,
       total:       sa.usage.in + sa.usage.out + sa.usage.cw + sa.usage.cr,
       usage:       sa.usage,
     })),
@@ -332,6 +367,23 @@ async function loadSessions(days = 7, project = null) {
   results.sort((a, b) => b.mtime - a.mtime);
   cachedSessions = results; sessionsBuiltAt = Date.now(); sessionsBuiltKey = key;
   console.log(`  Sessions: ${results.length} chargées.`);
+  return results;
+}
+
+// ── LIVE SESSIONS : 3 plus récentes, avec sous-agents, sans cache long ────
+let liveSessionsCache = null, liveSessionsBuiltAt = 0;
+async function loadLiveSessions(limit = 3) {
+  if (liveSessionsCache && Date.now() - liveSessionsBuiltAt < 5_000) return liveSessionsCache;
+  const all = scanSessionJsonl().map(({ filePath, projEncoded }) => {
+    let mtimeMs = 0; try { mtimeMs = statSync(filePath).mtimeMs; } catch {}
+    return { filePath, projEncoded, mtimeMs };
+  }).sort((a, b) => b.mtimeMs - a.mtimeMs).slice(0, limit);
+
+  const results = [];
+  for (const { filePath, projEncoded } of all) {
+    try { results.push(await parseSessionFull(filePath, projEncoded)); } catch {}
+  }
+  liveSessionsCache = results; liveSessionsBuiltAt = Date.now();
   return results;
 }
 
@@ -393,6 +445,10 @@ async function readNewLines(filePath) {
     const u = r.message?.usage;
     if (!u) continue;
     const model = r.message?.model || 'unknown';
+    const c = calcCost(u, model);
+    const inT = u.input_tokens || 0;
+    const cwT = u.cache_creation_input_tokens || 0;
+    const crT = u.cache_read_input_tokens || 0;
     broadcast({
       type:         'call',
       ts:           r.timestamp || new Date().toISOString(),
@@ -400,7 +456,9 @@ async function readNewLines(filePath) {
       project:      proj,
       sessionId:    uuid,
       sessionTitle: sessionTitles.get(filePath) || null,
-      cost:         calcCost(u, model),
+      cost:         c.full,
+      costPlan:     c.plan,
+      contextSize:  inT + cwT + crT,
       input:        u.input_tokens || 0,
       output:       u.output_tokens || 0,
       cacheRead:    u.cache_read_input_tokens || 0,
@@ -455,6 +513,15 @@ const server = createServer(async (req, res) => {
     try {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(await getStats(days)));
+    } catch (e) { res.writeHead(500); res.end(String(e)); }
+    return;
+  }
+
+  if (url.pathname === '/api/live-sessions') {
+    const limit = Math.min(10, Math.max(1, parseInt(url.searchParams.get('limit') || '3', 10)));
+    try {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(await loadLiveSessions(limit)));
     } catch (e) { res.writeHead(500); res.end(String(e)); }
     return;
   }

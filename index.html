@@ -3,213 +3,502 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>CCU Monitor</title>
+<title>Claude Code Usage Monitor</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
 <style>
+:root {
+  --bg:        #f7f5ef;
+  --bg-elev:   #ffffff;
+  --bg-soft:   #fbfaf6;
+  --line:      #e6e1d5;
+  --line-soft: #f0ebe1;
+  --text:      #1a1612;
+  --text-soft: #5b554c;
+  --text-mute: #9a9389;
+  --text-dim:  #c9c1b4;
+  --accent:    #cd0000;
+  --accent-2:  #2563eb;
+  --opus:      #7c3aed;
+  --sonnet:    #2563eb;
+  --haiku:     #059669;
+  --gold:      #d97706;
+  --green:     #059669;
+  --shadow-sm: 0 1px 2px rgba(31,24,12,.04), 0 1px 1px rgba(31,24,12,.03);
+  --shadow-md: 0 4px 12px rgba(31,24,12,.05), 0 1px 2px rgba(31,24,12,.04);
+  --radius:    12px;
+  --radius-sm: 8px;
+}
+
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-body { font-family: 'Inter', system-ui, -apple-system, sans-serif; background: #fbfaf6; color: #1a1a1a; font-size: 13px; }
+html, body { background: var(--bg); }
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  color: var(--text); font-size: 13px;
+  -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale;
+}
 
 /* ── Header ──────────────────────────────────────────── */
 header {
-  display: flex; align-items: center; gap: 12px;
-  padding: 12px 24px; background: #fff; border-bottom: 1px solid #e8e3d9;
+  display: flex; align-items: center; gap: 14px;
+  padding: 14px 26px; background: rgba(255,255,255,.85);
+  backdrop-filter: saturate(160%) blur(8px); -webkit-backdrop-filter: saturate(160%) blur(8px);
+  border-bottom: 1px solid var(--line);
   position: sticky; top: 0; z-index: 20;
 }
-.brand { font-weight: 700; font-size: 14px; letter-spacing: -0.3px; }
-.sep { color: #ddd; }
-#header-cost { font-size: 13px; color: #555; font-variant-numeric: tabular-nums; }
-.live-indicator { margin-left: auto; display: flex; align-items: center; gap: 6px; font-size: 11px; color: #9ca3af; font-weight: 500; text-transform: uppercase; letter-spacing: 0.4px; }
-.live-dot { width: 7px; height: 7px; border-radius: 50%; background: #d1d5db; transition: background 0.3s; }
-.live-dot.connected { background: #cd0000; animation: blink 1.6s ease-in-out infinite; }
-@keyframes blink { 0%,100%{opacity:1} 50%{opacity:.3} }
+.brand { font-weight: 700; font-size: 14px; letter-spacing: -0.3px; display: flex; align-items: center; gap: 8px; }
+.brand::before { content: ''; width: 8px; height: 8px; background: var(--accent); border-radius: 2px; box-shadow: 0 0 0 3px rgba(205,0,0,.15); }
+.sep { color: var(--line); }
+.header-costs { display: flex; align-items: center; gap: 14px; font-size: 12px; color: var(--text-soft); font-variant-numeric: tabular-nums; }
+.header-costs strong { color: var(--text); font-weight: 600; }
+.header-costs .label { color: var(--text-mute); font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; }
+
+.lang-toggle { margin-left: auto; display: flex; gap: 0; background: var(--bg-soft); border: 1px solid var(--line-soft); border-radius: 6px; padding: 2px; }
+.lang-btn { padding: 3px 9px; font-size: 10px; font-weight: 700; border: none; background: none; cursor: pointer; color: var(--text-mute); border-radius: 4px; font-family: inherit; letter-spacing: 0.5px; transition: all .12s; }
+.lang-btn:hover { color: var(--text); }
+.lang-btn.active { background: var(--text); color: #fff; }
+.live-indicator { display: flex; align-items: center; gap: 7px; font-size: 11px; color: var(--text-mute); font-weight: 500; text-transform: uppercase; letter-spacing: 0.5px; }
+.live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-dim); transition: background 0.3s; box-shadow: 0 0 0 3px rgba(154,147,137,.15); }
+.live-dot.connected { background: var(--accent); box-shadow: 0 0 0 3px rgba(205,0,0,.15); animation: pulse 2s ease-in-out infinite; }
+@keyframes pulse { 0%,100%{box-shadow: 0 0 0 3px rgba(205,0,0,.15)} 50%{box-shadow: 0 0 0 6px rgba(205,0,0,.05)} }
 
 /* ── Tabs ────────────────────────────────────────────── */
-.tab-nav { display: flex; padding: 0 24px; background: #fff; border-bottom: 1px solid #e8e3d9; position: sticky; top: 45px; z-index: 19; }
-.tab-btn { padding: 9px 18px; font-size: 13px; font-weight: 500; border: none; background: none; cursor: pointer; color: #888; border-bottom: 2px solid transparent; margin-bottom: -1px; transition: color .15s; }
-.tab-btn.active { color: #1a1a1a; border-bottom-color: #1a1a1a; }
-.tab-btn:hover:not(.active) { color: #555; }
+.tab-nav { display: flex; padding: 0 26px; background: rgba(255,255,255,.85); backdrop-filter: blur(8px); border-bottom: 1px solid var(--line); position: sticky; top: 49px; z-index: 19; }
+.tab-btn { padding: 10px 18px; font-size: 13px; font-weight: 500; border: none; background: none; cursor: pointer; color: var(--text-mute); border-bottom: 2px solid transparent; margin-bottom: -1px; transition: color .15s; font-family: inherit; }
+.tab-btn.active { color: var(--text); border-bottom-color: var(--text); }
+.tab-btn:hover:not(.active) { color: var(--text-soft); }
 .tab-content { display: none; }
 .tab-content.active { display: block; }
 
 /* ── Main ────────────────────────────────────────────── */
-main { padding: 18px 24px; max-width: 1500px; margin: 0 auto; }
+main { padding: 20px 26px; max-width: 1500px; margin: 0 auto; }
 
 /* ── Cards ───────────────────────────────────────────── */
-.card { background: #fff; border: 1px solid #e8e3d9; border-radius: 10px; padding: 16px 18px; }
-.card-title { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.6px; color: #aaa; margin-bottom: 12px; }
+.card { background: var(--bg-elev); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px 18px; box-shadow: var(--shadow-sm); transition: box-shadow .15s; }
+.card:hover { box-shadow: var(--shadow-md); }
+.card-title { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.7px; color: var(--text-mute); margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+.card-title .badge { background: var(--bg-soft); border: 1px solid var(--line-soft); padding: 2px 7px; border-radius: 6px; font-size: 9px; color: var(--text-soft); letter-spacing: 0.3px; }
 
 /* ── Dashboard grid ──────────────────────────────────── */
-.top-grid { display: grid; grid-template-columns: 210px 1fr 250px; gap: 12px; margin-bottom: 12px; }
-.cost-big { font-size: 36px; font-weight: 700; letter-spacing: -1.5px; line-height: 1; margin-bottom: 12px; font-variant-numeric: tabular-nums; }
-.tokens-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; margin-bottom: 8px; }
-.token-box { background: #fbfaf6; border: 1px solid #f0ebe1; border-radius: 5px; padding: 6px 9px; }
-.token-box .tk-label { font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.4px; color: #bbb; display: block; margin-bottom: 1px; }
-.token-box .tk-value { font-size: 12px; font-weight: 600; font-family: 'DM Mono','Courier New',monospace; color: #333; }
-.calls-badge { font-size: 11px; color: #bbb; }
-.calls-badge strong { color: #666; }
-.chart-wrap { position: relative; height: 160px; }
+.top-grid { display: grid; grid-template-columns: 230px 1fr 270px; gap: 12px; margin-bottom: 12px; }
+
+/* "Today" card */
+.today-card { background: linear-gradient(150deg, #ffffff 0%, #fbfaf6 100%); }
+.cost-stack { display: flex; align-items: baseline; gap: 8px; margin-bottom: 4px; }
+.cost-big {
+  font-size: 34px; font-weight: 700; letter-spacing: -1.2px; line-height: 1;
+  font-variant-numeric: tabular-nums;
+  background: linear-gradient(135deg, #1a1612 0%, #5b554c 100%);
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+}
+.cost-pill { display: inline-block; font-size: 10px; padding: 3px 8px; border-radius: 999px; background: rgba(5,150,105,.08); color: var(--green); font-weight: 600; letter-spacing: 0.3px; }
+.cost-sub { font-size: 11px; color: var(--text-mute); margin-bottom: 10px; font-variant-numeric: tabular-nums; }
+.cost-sub strong { color: var(--text-soft); font-weight: 600; }
+.tokens-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; margin-bottom: 9px; }
+.token-box { background: var(--bg-soft); border: 1px solid var(--line-soft); border-radius: 6px; padding: 6px 9px; }
+.token-box .tk-label { font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-dim); display: block; margin-bottom: 2px; }
+.token-box .tk-value { font-size: 12px; font-weight: 600; font-family: 'JetBrains Mono','DM Mono','Courier New',monospace; color: var(--text); }
+.calls-badge { font-size: 11px; color: var(--text-dim); }
+.calls-badge strong { color: var(--text-soft); font-weight: 600; }
+.chart-wrap { position: relative; height: 170px; }
+
+/* ── Live sessions card (on dashboard) ───────────────── */
+.dual-live-grid { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 12px; align-items: start; margin-bottom: 12px; }
+@media (max-width: 1100px) { .dual-live-grid { grid-template-columns: 1fr; } }
+.live-sessions-card { margin-bottom: 0; }
+.live-sessions-grid { display: flex; flex-direction: column; gap: 10px; max-height: 720px; overflow-y: auto; padding-right: 4px; }
+.live-session {
+  background: var(--bg-soft); border: 1px solid var(--line-soft); border-radius: var(--radius-sm);
+  padding: 11px 12px; position: relative; overflow: hidden; transition: all .15s;
+}
+.live-session:hover { border-color: var(--line); transform: translateY(-1px); box-shadow: var(--shadow-sm); }
+.live-session.active::before {
+  content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+  background: linear-gradient(90deg, var(--accent) 0%, var(--accent) 50%, transparent 100%);
+  animation: shimmer 2s ease-in-out infinite;
+}
+@keyframes shimmer { 0%,100%{opacity:1} 50%{opacity:.4} }
+.ls-header { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+.ls-model-pill { font-size: 9px; font-weight: 700; padding: 2px 7px; border-radius: 4px; color: #fff; letter-spacing: 0.3px; text-transform: uppercase; }
+.ls-since { font-size: 10px; color: var(--text-mute); margin-left: auto; font-variant-numeric: tabular-nums; }
+.ls-since.fresh { color: var(--accent); font-weight: 600; }
+.ls-title { font-size: 12px; font-weight: 500; color: var(--text); margin-bottom: 6px; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; min-height: 32px; }
+.ls-meta { display: flex; align-items: center; gap: 8px; font-size: 10px; color: var(--text-mute); margin-bottom: 6px; }
+.ls-meta .ls-proj { color: var(--text-soft); font-weight: 500; }
+.ls-cost-row { display: flex; align-items: baseline; gap: 8px; padding-top: 6px; border-top: 1px dashed var(--line-soft); }
+.ls-cost-main { font-size: 14px; font-weight: 700; font-family: 'JetBrains Mono','DM Mono',monospace; color: var(--text); font-variant-numeric: tabular-nums; }
+.ls-cost-plan { font-size: 10px; color: var(--green); font-weight: 600; font-variant-numeric: tabular-nums; }
+.ls-cost-plan-label { font-size: 9px; color: var(--text-mute); text-transform: uppercase; letter-spacing: 0.4px; }
+.ls-subagents { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line-soft); display: flex; flex-direction: column; gap: 4px; }
+.ls-subagents-label { font-size: 9px; color: var(--text-mute); text-transform: uppercase; letter-spacing: 0.4px; font-weight: 600; margin-bottom: 1px; display: flex; align-items: center; gap: 5px; }
+.ls-subagents-label .ls-sub-count { background: var(--text); color: #fff; border-radius: 999px; padding: 1px 6px; font-size: 9px; }
+.ls-sub { display: flex; align-items: center; gap: 6px; font-size: 10px; }
+.ls-sub-dot { width: 6px; height: 6px; border-radius: 2px; flex-shrink: 0; }
+.ls-sub-name { color: var(--text-soft); font-weight: 500; flex-shrink: 0; }
+.ls-sub-desc { color: var(--text-mute); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; }
+.ls-sub-cost { color: var(--text); font-weight: 600; font-family: 'JetBrains Mono','DM Mono',monospace; font-variant-numeric: tabular-nums; flex-shrink: 0; }
+.ls-empty { padding: 28px; text-align: center; color: var(--text-dim); font-size: 11px; }
+
+/* Tokens mini-grille */
+.ls-tokens { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; margin: 6px 0 8px; }
+.ls-tk { background: var(--bg-elev); border: 1px solid var(--line-soft); border-radius: 5px; padding: 4px 6px; display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.ls-tk span { font-size: 8px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.4px; color: var(--text-dim); }
+.ls-tk b { font-size: 11px; font-weight: 600; font-family: 'JetBrains Mono','DM Mono',monospace; color: var(--text); font-variant-numeric: tabular-nums; }
+.ls-tk-cr b { color: var(--green); }
+.ls-tk-cw b { color: var(--gold); }
+
+/* Bouton dépliage */
+.ls-expand-btn {
+  margin-top: 8px; width: 100%; padding: 5px 8px; font-size: 10px; font-weight: 600;
+  background: var(--bg-elev); border: 1px solid var(--line-soft); border-radius: 6px;
+  color: var(--text-soft); cursor: pointer; font-family: inherit;
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+  text-transform: uppercase; letter-spacing: 0.4px; transition: all .12s;
+}
+.ls-expand-btn:hover { background: var(--bg-soft); border-color: var(--line); color: var(--text); }
+.ls-chevron { display: inline-block; font-size: 9px; color: var(--text-mute); transition: transform .15s; }
+.ls-chevron.open { transform: rotate(90deg); }
+
+/* Live session expanded → carte traversant la grille */
+.live-session.expanded {
+  grid-column: 1 / -1;
+  background: var(--bg-elev);
+  border-color: var(--line);
+  box-shadow: var(--shadow-md);
+}
+
+/* Détail sous-agents */
+.ls-detail { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line-soft); }
+.ls-detail-title { font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-mute); margin-bottom: 6px; display: flex; align-items: center; gap: 5px; }
+.ls-sub-count { background: var(--text); color: #fff; border-radius: 999px; padding: 1px 6px; font-size: 9px; }
+.ls-sub-table { width: 100%; border-collapse: collapse; font-size: 10px; }
+.ls-sub-table thead th {
+  background: var(--bg-soft); padding: 5px 8px; text-align: left;
+  font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.4px;
+  color: var(--text-mute); border-bottom: 1px solid var(--line-soft);
+}
+.ls-sub-table thead th.num { text-align: right; }
+.ls-sub-table tbody td { padding: 5px 8px; border-bottom: 1px solid var(--line-soft); vertical-align: top; }
+.ls-sub-table tbody td.num { text-align: right; font-family: 'JetBrains Mono','DM Mono',monospace; font-variant-numeric: tabular-nums; }
+.ls-sub-table tbody tr:last-child td { border-bottom: none; }
+.ls-sub-table tbody tr:hover td { background: var(--bg-soft); }
+.ls-sub-agent { font-weight: 600; }
+.ls-sub-desc-line { color: var(--text-mute); font-size: 9px; margin-top: 1px; max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ── Live feed ───────────────────────────────────────── */
-.live-card { background: #fff; border: 1px solid #e8e3d9; border-radius: 10px; overflow: hidden; }
-.live-header { display: flex; align-items: center; gap: 8px; padding: 12px 18px 10px; border-bottom: 1px solid #f3efe6; }
+.live-card { background: var(--bg-elev); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow-sm); }
+.live-header { display: flex; align-items: center; gap: 8px; padding: 13px 18px 11px; border-bottom: 1px solid var(--line-soft); }
 .live-header .card-title { margin-bottom: 0; }
-#feed-count { margin-left: auto; font-size: 11px; color: #ccc; }
+#feed-count { margin-left: auto; font-size: 11px; color: var(--text-dim); font-variant-numeric: tabular-nums; }
 #live-feed { max-height: 380px; overflow-y: auto; }
 
-/* Feed rows — 2 lignes */
-.feed-row { padding: 8px 18px 7px; border-bottom: 1px solid #f8f5ef; transition: background .1s; }
-.feed-row:hover { background: #fdf8f0; }
+.feed-row { padding: 9px 18px 8px; border-bottom: 1px solid var(--line-soft); transition: background .1s; }
+.feed-row:hover { background: var(--bg-soft); }
 .feed-row:last-child { border-bottom: none; }
-.feed-row.new-row { animation: flash .8s ease-out; }
-@keyframes flash { from { background: #fef9e7; } to { background: transparent; } }
+.feed-row.new-row { animation: flash 1s ease-out; }
+@keyframes flash {
+  0%   { background: rgba(254,249,231,1); }
+  100% { background: transparent; }
+}
 
 .feed-main { display: flex; align-items: center; gap: 10px; font-size: 11px; }
 .feed-session-line { display: flex; align-items: center; gap: 5px; margin-top: 3px; padding-left: 2px; font-size: 10px; }
 
-.ft  { color: #9ca3af; font-family: 'DM Mono',monospace; min-width: 66px; }
+.ft  { color: var(--text-mute); font-family: 'JetBrains Mono','DM Mono',monospace; min-width: 66px; font-variant-numeric: tabular-nums; }
 .fm  { font-weight: 600; min-width: 90px; }
-.fp  { color: #777; min-width: 68px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.fc  { font-weight: 700; font-family: 'DM Mono',monospace; min-width: 60px; }
-.fo  { color: #2563eb; font-family: 'DM Mono',monospace; min-width: 52px; }
-.fcr { color: #059669; font-family: 'DM Mono',monospace; min-width: 60px; }
-.fcw { color: #d97706; font-family: 'DM Mono',monospace; min-width: 60px; }
-.nil { color: #e2ddd4; }
+.fp  { color: var(--text-soft); min-width: 68px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 140px; }
+.fc  { font-weight: 700; font-family: 'JetBrains Mono','DM Mono',monospace; min-width: 60px; font-variant-numeric: tabular-nums; }
+.fcp { color: var(--green); font-family: 'JetBrains Mono','DM Mono',monospace; min-width: 60px; font-variant-numeric: tabular-nums; font-size: 10px; }
+.fo  { color: var(--accent-2); font-family: 'JetBrains Mono','DM Mono',monospace; min-width: 52px; font-variant-numeric: tabular-nums; }
+.fcr { color: var(--green); font-family: 'JetBrains Mono','DM Mono',monospace; min-width: 60px; font-variant-numeric: tabular-nums; }
+.fcw { color: var(--gold); font-family: 'JetBrains Mono','DM Mono',monospace; min-width: 60px; font-variant-numeric: tabular-nums; }
+.nil { color: var(--text-dim); }
 
-.f-uuid  { color: #ccc; font-family: 'DM Mono',monospace; font-size: 10px; flex-shrink: 0; }
-.f-sep   { color: #e2ddd4; }
-.f-title { color: #777; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 600px; }
-.f-notitle { color: #ccc; font-style: italic; }
+.f-uuid  { color: var(--text-dim); font-family: 'JetBrains Mono','DM Mono',monospace; font-size: 10px; flex-shrink: 0; }
+.f-sep   { color: var(--text-dim); }
+.f-title { color: var(--text-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 600px; }
+.f-notitle { color: var(--text-dim); font-style: italic; }
+
+/* ── KPI strip ──────────────────────────────────────── */
+.kpi-strip { display: grid; grid-template-columns: repeat(8, 1fr); gap: 8px; margin-bottom: 12px; }
+@media (max-width: 1400px) { .kpi-strip { grid-template-columns: repeat(4, 1fr); } }
+@media (max-width: 700px)  { .kpi-strip { grid-template-columns: repeat(2, 1fr); } }
+.kpi {
+  background: var(--bg-elev); border: 1px solid var(--line); border-radius: var(--radius-sm);
+  padding: 10px 12px; box-shadow: var(--shadow-sm); cursor: help; transition: all .12s;
+}
+.kpi:hover { border-color: var(--text-dim); box-shadow: var(--shadow-md); }
+.kpi-label { font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.6px; color: var(--text-mute); margin-bottom: 4px; }
+.kpi-value { font-size: 18px; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; line-height: 1.1; letter-spacing: -0.4px; }
+.kpi-sub { font-size: 10px; color: var(--text-mute); margin-top: 3px; font-variant-numeric: tabular-nums; }
+
+.top-projects-card { min-height: 200px; margin-bottom: 12px; }
+.chart-projects-wrap { position: relative; height: 220px; }
+
+/* ── Context bar (mini) ───────────────────────────── */
+.ctx-bar-wrap { display: inline-flex; align-items: center; gap: 6px; min-width: 110px; }
+.ctx-bar { flex: 1; height: 5px; background: var(--line-soft); border-radius: 3px; overflow: hidden; min-width: 50px; max-width: 80px; }
+.ctx-bar-fill { height: 100%; border-radius: 3px; transition: width .2s; }
+.ctx-pct { font-size: 10px; font-family: 'JetBrains Mono','DM Mono',monospace; font-weight: 600; min-width: 32px; text-align: right; }
+
+/* ── Conseils tab ─────────────────────────────────── */
+.tips-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 12px; }
+.tip-card { background: var(--bg-elev); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px 18px; box-shadow: var(--shadow-sm); }
+.tip-card h3 { font-size: 13px; font-weight: 700; margin-bottom: 6px; color: var(--text); display: flex; align-items: center; gap: 8px; }
+.tip-card h3 .tip-emoji { font-size: 16px; }
+.tip-card p { font-size: 12px; color: var(--text-soft); line-height: 1.55; margin-bottom: 10px; }
+.tip-card .cmd { font-family: 'JetBrains Mono','DM Mono',monospace; background: var(--bg-soft); border: 1px solid var(--line-soft); border-radius: 5px; padding: 1px 6px; font-size: 11px; color: var(--accent); font-weight: 600; }
+.cmd-list { display: flex; flex-direction: column; gap: 0; }
+.cmd-row { display: grid; grid-template-columns: 130px 1fr; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--line-soft); align-items: start; }
+.cmd-row:last-child { border-bottom: none; }
+.cmd-row .cmd { align-self: start; justify-self: start; }
+.cmd-row .cmd-desc { font-size: 11px; color: var(--text-soft); line-height: 1.5; }
+.cmd-row .cmd-desc strong { color: var(--text); }
+.tip-card .alert { background: rgba(217,119,6,.08); border-left: 3px solid var(--gold); padding: 8px 10px; border-radius: 5px; font-size: 11px; color: var(--text-soft); line-height: 1.5; }
+.tip-card .alert strong { color: var(--gold); }
+.tip-card ul { font-size: 12px; color: var(--text-soft); line-height: 1.6; padding-left: 18px; }
+.tip-card ul li { margin-bottom: 4px; }
+
+/* ── Calculs tab ──────────────────────────────────── */
+.calc-intro { background: var(--bg-elev); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px 22px; margin-bottom: 14px; box-shadow: var(--shadow-sm); }
+.calc-intro h2 { font-size: 16px; font-weight: 700; color: var(--text); margin-bottom: 8px; letter-spacing: -0.3px; }
+.calc-intro p { font-size: 12px; color: var(--text-soft); line-height: 1.6; }
+.calc-intro code, .calc-card code { font-family: 'JetBrains Mono','DM Mono',monospace; background: var(--bg-soft); border: 1px solid var(--line-soft); padding: 1px 5px; border-radius: 4px; font-size: 11px; color: var(--text); }
+
+.calc-card {
+  background: var(--bg-elev); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 18px 22px; margin-bottom: 12px; box-shadow: var(--shadow-sm);
+}
+.calc-card h3 {
+  font-size: 14px; font-weight: 700; color: var(--text); margin-bottom: 14px;
+  display: flex; align-items: center; gap: 10px; letter-spacing: -0.2px;
+  padding-bottom: 10px; border-bottom: 1px solid var(--line-soft);
+}
+.calc-num {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px; background: var(--text); color: #fff;
+  border-radius: 6px; font-size: 11px; font-weight: 700;
+}
+
+.calc-block { margin-bottom: 14px; padding-bottom: 14px; border-bottom: 1px dashed var(--line-soft); }
+.calc-block:last-child { margin-bottom: 0; padding-bottom: 0; border-bottom: none; }
+
+.calc-name { font-size: 12px; font-weight: 600; color: var(--text); margin-bottom: 6px; display: flex; align-items: center; gap: 8px; }
+.calc-tag {
+  font-family: 'JetBrains Mono','DM Mono',monospace; font-size: 10px; font-weight: 600;
+  background: rgba(37,99,235,.1); color: var(--accent-2); padding: 1px 7px; border-radius: 4px;
+  border: 1px solid rgba(37,99,235,.2);
+}
+.calc-formula {
+  background: var(--bg-soft); border: 1px solid var(--line-soft); border-left: 3px solid var(--accent-2);
+  border-radius: 5px; padding: 8px 12px; margin-bottom: 6px; overflow-x: auto;
+}
+.calc-formula code {
+  font-family: 'JetBrains Mono','DM Mono',monospace; font-size: 12px; font-weight: 500;
+  color: var(--text); background: none; border: none; padding: 0;
+}
+.calc-desc { font-size: 11.5px; color: var(--text-soft); line-height: 1.55; margin-bottom: 6px; }
+.calc-desc code { font-size: 10px; }
+.calc-example {
+  font-size: 11px; color: var(--text-soft); line-height: 1.7;
+  background: rgba(217,119,6,.05); border-left: 3px solid var(--gold);
+  padding: 8px 12px; border-radius: 5px; margin-top: 6px;
+}
+.calc-example strong { color: var(--gold); }
+.calc-example code {
+  font-family: 'JetBrains Mono','DM Mono',monospace; font-size: 11px;
+  background: rgba(255,255,255,.6); border: 1px solid var(--line-soft); padding: 1px 5px; border-radius: 4px;
+}
+
+.calc-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 4px; }
+.calc-table thead th { background: var(--bg-soft); padding: 8px 10px; text-align: left; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.4px; color: var(--text-mute); border-bottom: 1px solid var(--line); }
+.calc-table thead th.num { text-align: right; }
+.calc-table tbody td { padding: 8px 10px; border-bottom: 1px solid var(--line-soft); }
+.calc-table tbody td.num { text-align: right; font-family: 'JetBrains Mono','DM Mono',monospace; font-variant-numeric: tabular-nums; }
+.calc-table tbody tr:last-child td { border-bottom: none; }
+
+.ctx-chip { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 11px; margin: 2px 4px 2px 0; }
+
+.calc-foot {
+  background: var(--bg-soft); border: 1px dashed var(--line); border-radius: var(--radius);
+  padding: 14px 18px; font-size: 11.5px; color: var(--text-soft); line-height: 1.6;
+}
+.calc-foot strong { color: var(--text); }
+.calc-foot code { font-family: 'JetBrains Mono','DM Mono',monospace; background: var(--bg-elev); border: 1px solid var(--line-soft); padding: 1px 5px; border-radius: 4px; font-size: 10.5px; color: var(--text); }
 
 /* ── Sessions tab ────────────────────────────────────── */
-
-/* Chart card */
 #sessions-chart-card { margin-bottom: 12px; display: none; }
 .chart-card-header { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
 .chart-card-header .card-title { margin-bottom: 0; }
-.chart-toggle { display: flex; background: #f3efe6; border-radius: 5px; padding: 2px; gap: 0; margin-left: auto; }
-.ctoggle { padding: 4px 14px; font-size: 11px; font-weight: 500; border: none; background: none; cursor: pointer; color: #888; border-radius: 3px; transition: all .15s; }
-.ctoggle.active { background: #fff; color: #1a1a1a; box-shadow: 0 1px 3px rgba(0,0,0,.1); }
-.chart-sessions-wrap { position: relative; height: 200px; }
+.chart-toggle { display: flex; background: var(--bg-soft); border: 1px solid var(--line-soft); border-radius: 7px; padding: 2px; gap: 0; margin-left: auto; }
+.ctoggle { padding: 4px 14px; font-size: 11px; font-weight: 500; border: none; background: none; cursor: pointer; color: var(--text-mute); border-radius: 5px; transition: all .15s; font-family: inherit; }
+.ctoggle.active { background: var(--bg-elev); color: var(--text); box-shadow: var(--shadow-sm); }
+.chart-sessions-wrap { position: relative; height: 220px; }
 
-/* Filters */
 .sessions-filters { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
-.filter-group { display: flex; align-items: center; gap: 5px; }
-.filter-label { font-size: 11px; color: #aaa; font-weight: 500; text-transform: uppercase; letter-spacing: 0.4px; }
-.filter-select, .filter-input { font-size: 12px; padding: 5px 10px; border: 1px solid #e8e3d9; border-radius: 6px; background: #fff; color: #1a1a1a; outline: none; cursor: pointer; }
-.filter-select:focus, .filter-input:focus { border-color: #aaa; }
-.filter-input { width: 160px; }
-#btn-load-sessions { font-size: 12px; font-weight: 500; padding: 5px 14px; background: #1a1a1a; color: #fff; border: none; border-radius: 6px; cursor: pointer; }
-#btn-load-sessions:hover { background: #333; }
-#sessions-summary { font-size: 11px; color: #aaa; margin-left: auto; }
+.filter-group { display: flex; align-items: center; gap: 6px; }
+.filter-label { font-size: 10px; color: var(--text-mute); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+.filter-select, .filter-input {
+  font-size: 12px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 7px;
+  background: var(--bg-elev); color: var(--text); outline: none; cursor: pointer; font-family: inherit;
+}
+.filter-select:focus, .filter-input:focus { border-color: var(--text-soft); }
+.filter-input { width: 170px; cursor: text; }
+#btn-load-sessions { font-size: 12px; font-weight: 500; padding: 6px 16px; background: var(--text); color: #fff; border: none; border-radius: 7px; cursor: pointer; font-family: inherit; transition: background .15s; }
+#btn-load-sessions:hover { background: #2c2620; }
+#sessions-summary { font-size: 11px; color: var(--text-mute); margin-left: auto; font-variant-numeric: tabular-nums; }
+#sessions-summary strong { color: var(--text); font-weight: 600; }
 
-/* Sessions table */
-.sessions-wrap { overflow-x: auto; }
+.sessions-wrap { background: var(--bg-elev); border: 1px solid var(--line); border-radius: var(--radius); overflow-x: auto; box-shadow: var(--shadow-sm); }
 .sessions-table { width: 100%; border-collapse: collapse; font-size: 11px; white-space: nowrap; }
 .sessions-table thead th {
-  background: #fbfaf6; border-bottom: 2px solid #e8e3d9; padding: 8px 10px;
+  background: var(--bg-soft); border-bottom: 1px solid var(--line); padding: 9px 10px;
   text-align: left; font-weight: 600; font-size: 10px; text-transform: uppercase;
-  letter-spacing: 0.4px; color: #aaa; position: sticky; top: 0; z-index: 1;
+  letter-spacing: 0.5px; color: var(--text-mute); position: sticky; top: 0; z-index: 1;
 }
 .sessions-table thead th.num { text-align: right; }
-.sessions-table tbody tr.session-row { cursor: pointer; border-bottom: 1px solid #f3efe6; transition: background .1s; }
-.sessions-table tbody tr.session-row:hover { background: #fdf8f0; }
-.sessions-table tbody tr.session-row.expanded { background: #fdf8f0; }
-.sessions-table td { padding: 7px 10px; vertical-align: middle; }
-.sessions-table td.num { text-align: right; font-family: 'DM Mono',monospace; }
-.expand-icon { display: inline-block; width: 14px; color: #bbb; font-size: 10px; transition: transform .15s; }
+.sessions-table tbody tr.session-row { cursor: pointer; border-bottom: 1px solid var(--line-soft); transition: background .1s; }
+.sessions-table tbody tr.session-row:hover { background: var(--bg-soft); }
+.sessions-table tbody tr.session-row.expanded { background: var(--bg-soft); }
+.sessions-table td { padding: 8px 10px; vertical-align: middle; }
+.sessions-table td.num { text-align: right; font-family: 'JetBrains Mono','DM Mono',monospace; font-variant-numeric: tabular-nums; }
+.expand-icon { display: inline-block; width: 14px; color: var(--text-dim); font-size: 10px; transition: transform .15s; }
 .expanded .expand-icon { transform: rotate(90deg); }
 .detail-row { display: none; }
 .detail-row.open { display: table-row; }
-.detail-row td { background: #fbfaf6; padding: 0; }
-.detail-inner { padding: 6px 18px 10px 36px; }
+.detail-row td { background: var(--bg-soft); padding: 0; }
+.detail-inner { padding: 8px 18px 12px 36px; }
 .detail-inner table { width: 100%; font-size: 10px; }
-.detail-inner th { color: #bbb; text-transform: uppercase; letter-spacing: 0.4px; padding: 4px 8px 2px; font-weight: 600; text-align: left; border-bottom: 1px solid #ede8de; }
+.detail-inner th { color: var(--text-mute); text-transform: uppercase; letter-spacing: 0.5px; padding: 4px 8px 3px; font-weight: 600; text-align: left; border-bottom: 1px solid var(--line-soft); }
 .detail-inner th.num { text-align: right; }
-.detail-inner td { padding: 4px 8px; border-bottom: 1px solid #f3efe6; }
-.detail-inner td.num { text-align: right; font-family: 'DM Mono',monospace; }
+.detail-inner td { padding: 5px 8px; border-bottom: 1px solid var(--line-soft); }
+.detail-inner td.num { text-align: right; font-family: 'JetBrains Mono','DM Mono',monospace; font-variant-numeric: tabular-nums; }
 .detail-inner tr:last-child td { border-bottom: none; }
-.tbl-at { color: #888; font-family: 'DM Mono',monospace; font-size: 10px; }
-.tbl-uuid { color: #bbb; font-family: 'DM Mono',monospace; }
+.tbl-at { color: var(--text-soft); font-family: 'JetBrains Mono','DM Mono',monospace; font-size: 10px; font-variant-numeric: tabular-nums; }
+.tbl-uuid { color: var(--text-dim); font-family: 'JetBrains Mono','DM Mono',monospace; }
 .tbl-model { font-weight: 600; }
-.tbl-proj { color: #666; }
-.tbl-title { color: #333; max-width: 380px; overflow: hidden; text-overflow: ellipsis; }
-.tbl-cost { font-weight: 700; font-family: 'DM Mono',monospace; }
-.tbl-brut { color: #bbb; font-family: 'DM Mono',monospace; }
-.delta-pos-hi { color: #cd0000; font-weight: 600; }
-.delta-pos-lo { color: #d97706; }
-.delta-neg-hi { color: #059669; font-weight: 600; }
-.delta-neg-lo { color: #059669; }
-.delta-flat   { color: #bbb; }
-.summary-row td { background: #f3efe6 !important; font-weight: 700; border-top: 2px solid #e8e3d9 !important; }
+.tbl-proj { color: var(--text-soft); }
+.tbl-title { color: var(--text); max-width: 380px; overflow: hidden; text-overflow: ellipsis; }
+.tbl-cost { font-weight: 700; font-family: 'JetBrains Mono','DM Mono',monospace; }
+.tbl-plan { color: var(--green); font-weight: 600; font-family: 'JetBrains Mono','DM Mono',monospace; }
+.delta-pos-hi { color: var(--accent); font-weight: 600; }
+.delta-pos-lo { color: var(--gold); }
+.delta-neg-hi { color: var(--green); font-weight: 600; }
+.delta-neg-lo { color: var(--green); }
+.delta-flat   { color: var(--text-dim); }
+.summary-row td { background: #efe9dc !important; font-weight: 700; border-top: 2px solid var(--line) !important; }
 
-/* ── Timeline ────────────────────────────────────────── */
 #timeline-card { margin-top: 12px; display: none; }
-.timeline-table td.t-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 340px; color: #555; }
-.cumul-cell { font-family: 'DM Mono',monospace; font-weight: 700; color: #1a1a1a; }
+.timeline-table td.t-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 340px; color: var(--text-soft); }
+.cumul-cell { font-family: 'JetBrains Mono','DM Mono',monospace; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
 .cumul-bar-wrap { display: flex; align-items: center; gap: 8px; }
-.cumul-bar { height: 6px; background: #2563eb22; border-radius: 3px; position: relative; overflow: hidden; flex: 1; min-width: 60px; max-width: 120px; }
-.cumul-bar-fill { position: absolute; left: 0; top: 0; height: 100%; background: #2563eb; border-radius: 3px; transition: width .3s; }
+.cumul-bar { height: 6px; background: rgba(37,99,235,.13); border-radius: 3px; position: relative; overflow: hidden; flex: 1; min-width: 60px; max-width: 120px; }
+.cumul-bar-fill { position: absolute; left: 0; top: 0; height: 100%; background: var(--accent-2); border-radius: 3px; transition: width .3s; }
 
-/* Loading */
-#loading { position:fixed;inset:0;background:rgba(251,250,246,.92);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;z-index:100;font-size:13px;color:#888; }
-.spinner { width:28px;height:28px;border:3px solid #e8e3d9;border-top-color:#1a1a1a;border-radius:50%;animation:spin .8s linear infinite; }
+#loading { position:fixed;inset:0;background:rgba(247,245,239,.94);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;z-index:100;font-size:13px;color:var(--text-mute); }
+.spinner { width:30px;height:30px;border:3px solid var(--line);border-top-color:var(--text);border-radius:50%;animation:spin .8s linear infinite; }
 @keyframes spin { to{transform:rotate(360deg)} }
-#sessions-loading { display:none;padding:40px;text-align:center;color:#aaa; }
+#sessions-loading { display:none;padding:40px;text-align:center;color:var(--text-mute); }
+
+/* Scrollbars */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--line); border-radius: 5px; border: 2px solid var(--bg); }
+::-webkit-scrollbar-thumb:hover { background: var(--text-dim); }
 </style>
 </head>
 <body>
 
-<div id="loading"><div class="spinner"></div><span>Chargement des données…</span></div>
+<div id="loading"><div class="spinner"></div><span data-i18n="loadingData">Chargement des données…</span></div>
 
 <header>
-  <span class="brand">CCU Monitor</span>
-  <span class="sep">|</span>
-  <span id="header-cost">…</span>
+  <span class="brand">Claude Code Usage Monitor</span>
+  <span class="sep">·</span>
+  <div class="header-costs">
+    <span><span class="label" data-i18n="headerForfait">Forfait</span> <strong id="header-cost-plan">…</strong></span>
+    <span class="sep">/</span>
+    <span><span class="label" data-i18n="headerApi">API</span> <strong id="header-cost-full">…</strong></span>
+  </div>
+  <div class="lang-toggle" title="Changer de langue / Switch language">
+    <button class="lang-btn" data-lang="fr">FR</button>
+    <button class="lang-btn" data-lang="en">EN</button>
+  </div>
   <div class="live-indicator">
     <div class="live-dot" id="live-dot"></div>
-    <span id="live-label">Connexion…</span>
+    <span id="live-label" data-i18n="connecting">Connexion…</span>
   </div>
 </header>
 
 <nav class="tab-nav">
-  <button class="tab-btn active" data-tab="dashboard">Dashboard</button>
-  <button class="tab-btn" data-tab="sessions">Sessions</button>
+  <button class="tab-btn active" data-tab="dashboard" data-i18n="tabDashboard">Dashboard</button>
+  <button class="tab-btn" data-tab="sessions" data-i18n="tabSessions">Sessions</button>
+  <button class="tab-btn" data-tab="conseils" data-i18n="tabConseils">Conseils</button>
+  <button class="tab-btn" data-tab="calculs" data-i18n="tabCalculs">Calculs</button>
 </nav>
 
 <!-- ══ TAB DASHBOARD ══════════════════════════════════════ -->
 <div id="tab-dashboard" class="tab-content active">
 <main>
   <div class="top-grid">
-    <div class="card">
-      <div class="card-title">Aujourd'hui</div>
-      <div class="cost-big" id="today-cost">—</div>
-      <div class="tokens-grid">
-        <div class="token-box"><span class="tk-label">Input</span><span class="tk-value" id="tk-input">—</span></div>
-        <div class="token-box"><span class="tk-label">Output</span><span class="tk-value" id="tk-output">—</span></div>
-        <div class="token-box"><span class="tk-label">Cache R</span><span class="tk-value" id="tk-cr">—</span></div>
-        <div class="token-box"><span class="tk-label">Cache W</span><span class="tk-value" id="tk-cw">—</span></div>
+    <div class="card today-card">
+      <div class="card-title"><span data-i18n="today">Aujourd'hui</span> <span class="badge" data-i18n="badgeForfait">forfait</span></div>
+      <div class="cost-stack">
+        <div class="cost-big" id="today-cost-plan">—</div>
       </div>
-      <div class="calls-badge"><strong id="today-calls">0</strong> appels API</div>
+      <div class="cost-sub"><span data-i18n="apiTheoretical">API théorique</span> : <strong id="today-cost-full">—</strong></div>
+      <div class="tokens-grid">
+        <div class="token-box"><span class="tk-label" data-i18n="input">Input</span><span class="tk-value" id="tk-input">—</span></div>
+        <div class="token-box"><span class="tk-label" data-i18n="output">Output</span><span class="tk-value" id="tk-output">—</span></div>
+        <div class="token-box"><span class="tk-label" data-i18n="cacheR">Cache R</span><span class="tk-value" id="tk-cr">—</span></div>
+        <div class="token-box"><span class="tk-label" data-i18n="cacheW">Cache W</span><span class="tk-value" id="tk-cw">—</span></div>
+      </div>
+      <div class="calls-badge"><strong id="today-calls">0</strong> <span data-i18n="apiCalls">appels API</span></div>
     </div>
     <div class="card">
-      <div class="card-title">7 derniers jours — coût ($)</div>
+      <div class="card-title"><span data-i18n="last7Days">7 derniers jours</span> <span class="badge" data-i18n="planNoCacheR">forfait $ (hors cache R)</span></div>
       <div class="chart-wrap"><canvas id="chart-daily"></canvas></div>
     </div>
     <div class="card">
-      <div class="card-title">Répartition par modèle</div>
+      <div class="card-title" data-i18n="modelBreakdown">Répartition par modèle</div>
       <div class="chart-wrap"><canvas id="chart-models"></canvas></div>
     </div>
   </div>
 
-  <div class="live-card">
-    <div class="live-header">
-      <div class="card-title">Flux live — appels API</div>
-      <span id="feed-count">0 appels</span>
+  <div class="dual-live-grid">
+    <div class="card live-sessions-card">
+      <div class="card-title">
+        <span data-i18n="liveSessions">Sessions live</span> <span class="badge" data-i18n="liveSessionsBadge">3 dernières · sous-agents inclus</span>
+      </div>
+      <div class="live-sessions-grid" id="live-sessions">
+        <div class="ls-empty" data-i18n="loadingData">Chargement…</div>
+      </div>
     </div>
-    <div id="live-feed">
-      <div style="padding:20px;text-align:center;color:#ccc;font-size:11px">En attente d'appels API…</div>
+
+    <div class="live-card">
+      <div class="live-header">
+        <div class="card-title" data-i18n="liveFeed">Flux live — appels API</div>
+        <span id="feed-count">0</span>
+      </div>
+      <div id="live-feed">
+        <div style="padding:24px;text-align:center;color:var(--text-dim);font-size:11px" data-i18n="waitingApi">En attente d'appels API…</div>
+      </div>
     </div>
   </div>
+</main>
+</div>
+
+<!-- ══ TAB CONSEILS ═══════════════════════════════════════ -->
+<div id="tab-conseils" class="tab-content">
+<main>
+  <div class="tips-grid" id="conseils-content" data-i18n-html="conseilsHtml"></div>
+</main>
+</div>
+
+<!-- ══ TAB CALCULS ════════════════════════════════════════ -->
+<div id="tab-calculs" class="tab-content">
+<main>
+
+  <div id="calculs-content" data-i18n-html="calculsHtml"></div>
+
 </main>
 </div>
 
@@ -217,13 +506,62 @@ main { padding: 18px 24px; max-width: 1500px; margin: 0 auto; }
 <div id="tab-sessions" class="tab-content">
 <main>
 
-  <!-- Graphe évolution -->
+  <!-- KPI strip -->
+  <div class="kpi-strip" id="kpi-strip">
+    <div class="kpi" title="Total du coût forfait sur la fenêtre sélectionnée. Calcul : Σ (input + output + cache_write) × prix modèle. Cache read EXCLU car non facturé sur l'abonnement Claude Code.">
+      <div class="kpi-label" data-i18n="kpiForfait">Forfait</div>
+      <div class="kpi-value" id="kpi-plan">—</div>
+      <div class="kpi-sub" id="kpi-plan-sub">—</div>
+    </div>
+    <div class="kpi" title="Coût API théorique = ce que coûterait la même utilisation via l'API Anthropic, cache read INCLUS. Calcul : Σ (input × $in + output × $out + cache_write × $cw + cache_read × $cr) / 1e6.">
+      <div class="kpi-label" data-i18n="kpiApi">API théorique</div>
+      <div class="kpi-value" id="kpi-api">—</div>
+      <div class="kpi-sub" id="kpi-api-sub">—</div>
+    </div>
+    <div class="kpi" title="Nombre de sessions distinctes (fichiers .jsonl racines) sur la fenêtre. Les sous-agents ne comptent pas comme sessions séparées.">
+      <div class="kpi-label" data-i18n="kpiSessions">Sessions</div>
+      <div class="kpi-value" id="kpi-sessions">—</div>
+      <div class="kpi-sub" id="kpi-sessions-sub">—</div>
+    </div>
+    <div class="kpi" title="Coût forfait moyen par session = total forfait / nombre de sessions.">
+      <div class="kpi-label" data-i18n="kpiAvg">Coût / session</div>
+      <div class="kpi-value" id="kpi-avg">—</div>
+      <div class="kpi-sub" id="kpi-avg-sub">—</div>
+    </div>
+    <div class="kpi" title="Taux de cache hit = cache_read / (cache_read + cache_write + input). Plus c'est haut, mieux le prompt cache fonctionne (économie effective).">
+      <div class="kpi-label" data-i18n="kpiCache">Cache hit</div>
+      <div class="kpi-value" id="kpi-cache">—</div>
+      <div class="kpi-sub" id="kpi-cache-sub">—</div>
+    </div>
+    <div class="kpi" title="Économie réalisée grâce au prompt caching. Calcul : (coût sans cache − coût API) — c'est ce que tu paierais si toutes les requêtes étaient au prix input plein.">
+      <div class="kpi-label" data-i18n="kpiSavings">Économie cache</div>
+      <div class="kpi-value" id="kpi-savings">—</div>
+      <div class="kpi-sub" id="kpi-savings-sub">—</div>
+    </div>
+    <div class="kpi" title="Nombre total d'invocations de sous-agents (Task tool, agents Explore/Plan/etc) sur la fenêtre.">
+      <div class="kpi-label" data-i18n="kpiSubs">Sous-agents</div>
+      <div class="kpi-value" id="kpi-subs">—</div>
+      <div class="kpi-sub" id="kpi-subs-sub">—</div>
+    </div>
+    <div class="kpi" title="Contexte max observé sur la fenêtre, en % du contexte max du modèle.&#10;Calcul par appel : input + cache_read + cache_creation = tokens envoyés au modèle à ce tour.&#10;Anthropic recommande /compact dès ~40% car les requêtes deviennent lentes et coûteuses.&#10;• <40% = optimal&#10;• 40–80% = à compacter&#10;• >80% = critique">
+      <div class="kpi-label" data-i18n="kpiCtx">Contexte max</div>
+      <div class="kpi-value" id="kpi-ctx">—</div>
+      <div class="kpi-sub" id="kpi-ctx-sub">—</div>
+    </div>
+  </div>
+
+  <!-- Top projets -->
+  <div class="card top-projects-card">
+    <div class="card-title"><span data-i18n="topProjects">Top projets</span> <span class="badge"><span data-i18n="badgeForfait">forfait</span> $</span></div>
+    <div class="chart-projects-wrap"><canvas id="chart-projects"></canvas></div>
+  </div>
+
   <div class="card" id="sessions-chart-card">
     <div class="chart-card-header">
-      <div class="card-title">Évolution du coût des sessions</div>
+      <div class="card-title"><span data-i18n="sessionsCostEvolution">Évolution du coût des sessions</span> <span class="badge" data-i18n="badgeForfait">forfait</span></div>
       <div class="chart-toggle">
-        <button class="ctoggle active" data-mode="daily">Jours</button>
-        <button class="ctoggle" data-mode="hourly">Heures</button>
+        <button class="ctoggle active" data-mode="daily" data-i18n="days">Jours</button>
+        <button class="ctoggle" data-mode="hourly" data-i18n="hours">Heures</button>
       </div>
     </div>
     <div class="chart-sessions-wrap"><canvas id="chart-sessions"></canvas></div>
@@ -231,69 +569,72 @@ main { padding: 18px 24px; max-width: 1500px; margin: 0 auto; }
 
   <div class="sessions-filters">
     <div class="filter-group">
-      <span class="filter-label">Fenêtre</span>
+      <span class="filter-label" data-i18n="window">Fenêtre</span>
       <select class="filter-select" id="sess-days">
-        <option value="1">Aujourd'hui (1j)</option>
-        <option value="7" selected>7 jours</option>
-        <option value="14">14 jours</option>
-        <option value="30">30 jours</option>
+        <option value="1" data-i18n="todayOpt">Aujourd'hui (1j)</option>
+        <option value="3" selected data-i18n="d3">3 jours</option>
+        <option value="7" data-i18n="d7">7 jours</option>
+        <option value="14" data-i18n="d14">14 jours</option>
+        <option value="30" data-i18n="d30">30 jours</option>
       </select>
     </div>
     <div class="filter-group">
-      <span class="filter-label">Projet</span>
-      <input class="filter-input" id="sess-project" placeholder="Filtrer par projet…" />
+      <span class="filter-label" data-i18n="project">Projet</span>
+      <select class="filter-select" id="sess-project-select" style="min-width:180px">
+        <option value="" data-i18n="allProjects">— Tous —</option>
+      </select>
     </div>
-    <button id="btn-load-sessions">Charger</button>
+    <button id="btn-load-sessions" data-i18n="load">Charger</button>
     <span id="sessions-summary"></span>
   </div>
 
-  <div id="sessions-loading"><div class="spinner" style="margin:0 auto 8px"></div>Chargement des sessions…</div>
+  <div id="sessions-loading"><div class="spinner" style="margin:0 auto 8px"></div><span data-i18n="loadingSessions">Chargement des sessions…</span></div>
 
   <div class="sessions-wrap">
     <table class="sessions-table" id="sessions-table">
       <thead>
         <tr>
-          <th></th>
-          <th>Date</th>
-          <th>UUID</th>
-          <th>Modèle</th>
-          <th class="num">Input</th>
-          <th class="num">Output</th>
-          <th class="num">Cache R</th>
-          <th class="num">Cache W</th>
-          <th class="num">Total</th>
-          <th class="num">Coût</th>
-          <th class="num">Brut $</th>
-          <th class="num">Δ moy</th>
-          <th>Projet</th>
-          <th>Titre</th>
+          <th title="Indicateur de présence de sous-agents (▶ = cliquer pour déplier)"></th>
+          <th data-i18n="date" title="Date de dernière modification du fichier .jsonl de la session">Date</th>
+          <th data-i18n="uuid" title="UUID court (8 premiers caractères) — survol pour voir l'UUID complet">UUID</th>
+          <th data-i18n="model" title="Modèle dominant (celui qui a généré le plus de coût). Une session peut mêler plusieurs modèles via les sous-agents.">Modèle</th>
+          <th class="num" data-i18n="input" title="Tokens d'entrée — facturés au tarif input plein">Input</th>
+          <th class="num" data-i18n="output" title="Tokens de sortie — les plus chers (≈5× le prix input)">Output</th>
+          <th class="num" data-i18n="cacheR" title="Cache READ — non facturé sur l'abonnement Claude Code (10% du tarif input sur l'API)">Cache R</th>
+          <th class="num" data-i18n="cacheW" title="Cache WRITE — création de cache, 1.25× le tarif input">Cache W</th>
+          <th class="num" data-i18n="total" title="Total tokens : in + out + cw + cr">Total</th>
+          <th data-i18n="contextCol" title="Contexte max observé dans la session, en % du max modèle (Opus 4.7 = 1M, autres = 200K).&#10;Calcul par appel : input + cache_read + cache_creation = tokens envoyés au modèle.&#10;Conseil : utiliser /compact dès ~40% pour optimiser le coût et la latence.">Contexte</th>
+          <th class="num" title="Coût FORFAIT (Claude Code abo). Cache read EXCLU.&#10;Calcul : in×$in + out×$out + cw×$cw"><span data-i18n="forfait">Forfait</span> $</th>
+          <th class="num" title="Coût API théorique (Anthropic API). Cache read INCLUS.&#10;Calcul : in×$in + out×$out + cw×$cw + cr×$cr"><span data-i18n="apiCol">API</span> $</th>
+          <th class="num" data-i18n="deltaAvg" title="Écart par rapport au coût forfait moyen sur la fenêtre.&#10;Δ = (session − moyenne) / moyenne × 100">Δ moy</th>
+          <th data-i18n="project" title="Projet (dossier de travail) — extrait du chemin .claude/projects/">Projet</th>
+          <th data-i18n="titleCol" title="Premier prompt user de la session (ou label personnalisé si défini dans ~/.claude/session-labels.json)">Titre</th>
         </tr>
       </thead>
       <tbody id="sessions-body">
-        <tr><td colspan="14" style="padding:32px;text-align:center;color:#ccc">Cliquez sur "Charger" pour afficher les sessions</td></tr>
+        <tr><td colspan="15" style="padding:32px;text-align:center;color:var(--text-dim)" data-i18n="clickLoad">Cliquez sur "Charger" pour afficher les sessions</td></tr>
       </tbody>
     </table>
   </div>
 
-  <!-- Chronologie coût par session -->
   <div class="card" id="timeline-card">
-    <div class="card-title">Chronologie — coût par session (ordre chronologique)</div>
-    <div class="sessions-wrap">
+    <div class="card-title"><span data-i18n="timeline">Chronologie — coût par session</span> <span class="badge" data-i18n="timelineBadge">forfait · ordre chronologique</span></div>
+    <div class="sessions-wrap" style="border:none;box-shadow:none;background:transparent">
       <table class="sessions-table timeline-table">
         <thead>
           <tr>
             <th class="num">#</th>
-            <th>Date</th>
-            <th>Modèle</th>
-            <th>Titre de session</th>
-            <th class="num">Coût</th>
-            <th class="num">Cumulé</th>
-            <th>Progression</th>
-            <th class="num">Agents</th>
+            <th data-i18n="date">Date</th>
+            <th data-i18n="model">Modèle</th>
+            <th data-i18n="titleCol">Titre de session</th>
+            <th class="num" data-i18n="forfait">Forfait</th>
+            <th class="num">Cumul</th>
+            <th data-i18n="progression">Progression</th>
+            <th class="num" data-i18n="agents">Agents</th>
           </tr>
         </thead>
         <tbody id="timeline-body">
-          <tr><td colspan="8" style="padding:16px;text-align:center;color:#ccc">—</td></tr>
+          <tr><td colspan="8" style="padding:16px;text-align:center;color:var(--text-dim)">—</td></tr>
         </tbody>
       </table>
     </div>
@@ -303,6 +644,632 @@ main { padding: 18px 24px; max-width: 1500px; margin: 0 auto; }
 </div>
 
 <script>
+// ── i18n ─────────────────────────────────────────────────
+const I18N = {
+  fr: {
+    connecting: 'Connexion…', live: 'Live', reconnecting: 'Reconnexion…',
+    tabDashboard: 'Dashboard', tabSessions: 'Sessions', tabConseils: 'Conseils', tabCalculs: 'Calculs',
+    headerForfait: 'Forfait', headerApi: 'API',
+    today: 'Aujourd\'hui', badgeForfait: 'forfait', apiTheoretical: 'API théorique',
+    input: 'Input', output: 'Output', cacheR: 'Cache R', cacheW: 'Cache W',
+    apiCalls: 'appels API',
+    last7Days: '7 derniers jours', planNoCacheR: 'forfait $ (hors cache R)',
+    modelBreakdown: 'Répartition par modèle',
+    liveSessions: 'Sessions live', liveSessionsBadge: '3 dernières · sous-agents inclus',
+    liveFeed: 'Flux live — appels API',
+    waitingApi: 'En attente d\'appels API…',
+    noRecentSession: 'Aucune session récente',
+    loadingData: 'Chargement des données…',
+    subagents: 'Sous-agents',
+    byModelLabel: 'Par modèle',
+    callsCount: 'Appels',
+    forfait: 'Forfait', apiCol: 'API', total: 'Total',
+    kpiForfait: 'Forfait', kpiApi: 'API théorique', kpiSessions: 'Sessions',
+    kpiAvg: 'Coût / session', kpiCache: 'Cache hit', kpiSavings: 'Économie cache',
+    kpiSubs: 'Sous-agents', kpiCtx: 'Contexte max',
+    topProjects: 'Top projets',
+    sessionsCostEvolution: 'Évolution du coût des sessions',
+    days: 'Jours', hours: 'Heures',
+    window: 'Fenêtre', project: 'Projet', load: 'Charger',
+    todayOpt: 'Aujourd\'hui (1j)', d3: '3 jours', d7: '7 jours', d14: '14 jours', d30: '30 jours',
+    allProjects: '— Tous —',
+    loadingSessions: 'Chargement des sessions…',
+    noSessionsInWindow: 'Aucune session dans cette fenêtre',
+    clickLoad: 'Cliquez sur "Charger" pour afficher les sessions',
+    date: 'Date', uuid: 'UUID', model: 'Modèle',
+    contextCol: 'Contexte', deltaAvg: 'Δ moy', titleCol: 'Titre',
+    timeline: 'Chronologie — coût par session', timelineBadge: 'forfait · ordre chronologique',
+    progression: 'Progression', agents: 'Agents',
+    description: 'Description',
+    optimal: 'optimal', toCompact: 'à compacter', critical: 'critique',
+    tipCompactWarn: '⚠ Tip : utiliser /compact pour optimiser le coût et la latence.',
+    tipCtxOk: '✓ Contexte sous le seuil de 40% — optimal.',
+    fmtMonth: 'fr-FR', fmtSeparator: 'à',
+    // Dynamic strings
+    titleNotLoaded: 'titre non encore chargé',
+    sessions: 'sessions', avg: 'moy.', max: 'max',
+    deltaVsApi: 'Δ vs API', perSession: '/ session',
+    projectsCount: 'projet(s)', vsNoCache: 'vs sans cache',
+    ofTotal: 'du total', subagentsLabel: 'Sous-agents',
+    description2: 'Description', byModel2: 'Par modèle',
+    callsLabel: 'Appels', tokens: 'tokens',
+    agent: 'agent', agentsPl: 'agents',
+    sessionTotal: 'Session totale', subagentsForfait: 'Sous-agents (forfait)',
+    contextMax: 'Contexte max', average: 'Moyenne',
+    contextStateLabel: 'État',
+    error: 'Erreur', loading: 'Chargement…',
+    noSubAgent: 'Aucun sous-agent invoqué dans cette session.',
+    subagentsCountLine: (n, cost, pct) => `${n} sous-agent${n>1?'s':''} — coût total : ${cost} (${pct}% de la session)\nClique pour déplier le détail.`,
+    pctOfContext: 'du contexte',
+    apiCallsBilled: 'Coût API théorique',
+    planBilled: 'Coût forfait Claude Code',
+    saveCacheLabel: 'Économie cache',
+    deltaVsAvg: 'Écart vs moyenne sessions',
+    inputTooltip: (n) => `Tokens d'entrée (input). Facturé au tarif input plein.\nTotal : ${n}`,
+    outputTooltip: (n) => `Tokens de sortie (output). Le plus cher (5× input).\nTotal : ${n}`,
+    cacheRTooltip: (n, ratio) => `Cache READ — lectures depuis le prompt cache.\n• Tarif API : 10% du prix input (cr)\n• Forfait Claude Code : NON FACTURÉ\nTotal : ${n}\nRatio : ${ratio}% du contexte`,
+    cacheWTooltip: (n) => `Cache WRITE — écritures dans le prompt cache.\nTarif : 1.25× le prix input (création coûteuse mais amortie sur les reads suivants).\nTotal : ${n}`,
+    totalTokens: (n) => `Total tokens (in + out + cw + cr) : ${n}`,
+    planFormulaTooltip: (cost) => `Coût FORFAIT (Claude Code abo).\nCalcul : in×$in + out×$out + cw×$cw\nCache read EXCLU.\n= ${cost}`,
+    apiFormulaTooltip: (cost, savings) => `Coût API théorique (équivalent Anthropic API).\nCalcul : in×$in + out×$out + cw×$cw + cr×$cr\n= ${cost}\nÉconomie cache : ${savings}`,
+    deltaTooltip: (sign, pct, avg, sPlan) => `Écart vs moyenne sessions : ${sign}${pct}%\nMoyenne forfait : ${avg}\nCette session : ${sPlan}`,
+    dateTooltip: (mtime, lastEvent) => `Dernière modification du fichier .jsonl : ${mtime}\nDernier event API : ${lastEvent}`,
+    modelTooltip: 'Modèle dominant (celui qui a généré le plus de coût).\nUne session peut mêler plusieurs modèles (ex: parent Opus + sous-agents Haiku) → cliquer pour voir le détail.',
+    ctxTooltip: (max, pct, avg, avgPct, model, ctxMax, calls, state, advice) => `Contexte max : ${max} tokens (${pct}%)\nMoyenne : ${avg} tokens (${avgPct}%)\nLimite ${model} : ${ctxMax}\nAppels : ${calls}\n\nÉtat : ${state}\n${advice}`,
+    conseilsHtml: `
+      <div class="tip-card">
+        <h3><span class="tip-emoji">🎯</span> Optimiser le contexte</h3>
+        <p>Anthropic recommande de garder le contexte sous <strong>~40%</strong> de la limite du modèle. Au-delà, chaque appel rejoue tout : <strong>plus lent, plus cher</strong>.</p>
+        <div class="alert">
+          Au seuil <strong>40%</strong> → <span class="cmd">/compact</span> (résume la conversation, garde le contexte clé).<br>
+          Au-delà de <strong>80%</strong> ou entre 2 tâches indépendantes → <span class="cmd">/clear</span> (repart de zéro, garde le CLAUDE.md).
+        </div>
+      </div>
+      <div class="tip-card">
+        <h3><span class="tip-emoji">🧠</span> Mémoire & projet</h3>
+        <div class="cmd-list">
+          <div class="cmd-row"><span class="cmd">/memory</span><span class="cmd-desc">Affiche / édite la mémoire persistante (infos user, feedback durable, références).</span></div>
+          <div class="cmd-row"><span class="cmd">/init</span><span class="cmd-desc">Initialise <strong>CLAUDE.md</strong> avec une doc auto-générée du codebase courant — lue à chaque session.</span></div>
+        </div>
+      </div>
+      <div class="tip-card">
+        <h3><span class="tip-emoji">🤖</span> Modèles & modes</h3>
+        <div class="cmd-list">
+          <div class="cmd-row"><span class="cmd">/model</span><span class="cmd-desc">Switch Opus (raisonnement) ↔ Sonnet (équilibré) ↔ Haiku (économique).</span></div>
+          <div class="cmd-row"><span class="cmd">/fast</span><span class="cmd-desc">Mode rapide — Opus 4.6 streamé plus vite. Pas de downgrade.</span></div>
+          <div class="cmd-row"><span class="cmd">/config</span><span class="cmd-desc">Theme, modèle par défaut, options globales.</span></div>
+        </div>
+        <div class="alert" style="margin-top:10px;background:rgba(37,99,235,.06);border-color:var(--accent-2)">
+          <strong>Limites de contexte</strong> :<br>
+          Opus 4.7 [1m] · Sonnet 4.6 = <strong>1M tokens</strong><br>
+          Opus 4.6/4.5 · Haiku 4.5 = <strong>200K tokens</strong>
+        </div>
+      </div>
+      <div class="tip-card">
+        <h3><span class="tip-emoji">🔧</span> Workflows code</h3>
+        <div class="cmd-list">
+          <div class="cmd-row"><span class="cmd">/review</span><span class="cmd-desc">Revue d'une PR (URL ou n°).</span></div>
+          <div class="cmd-row"><span class="cmd">/security-review</span><span class="cmd-desc">Audit sécurité des changements pendants.</span></div>
+          <div class="cmd-row"><span class="cmd">/ultrareview</span><span class="cmd-desc">Revue multi-agents cloud (facturée, demande explicite).</span></div>
+          <div class="cmd-row"><span class="cmd">/loop &lt;n&gt;</span><span class="cmd-desc">Boucle un prompt à intervalle (<span class="cmd">/loop 5m /foo</span>). Sans intervalle = auto-paced.</span></div>
+          <div class="cmd-row"><span class="cmd">/schedule</span><span class="cmd-desc">Agent programmé (cron ou ponctuel).</span></div>
+        </div>
+      </div>
+      <div class="tip-card">
+        <h3><span class="tip-emoji">⚙️</span> Config & extensions</h3>
+        <div class="cmd-list">
+          <div class="cmd-row"><span class="cmd">/permissions</span><span class="cmd-desc">Allow/deny outils (Bash, MCP, etc).</span></div>
+          <div class="cmd-row"><span class="cmd">/mcp</span><span class="cmd-desc">Serveurs MCP connectés.</span></div>
+          <div class="cmd-row"><span class="cmd">/ide</span><span class="cmd-desc">Extension IDE (VS Code, JetBrains).</span></div>
+          <div class="cmd-row"><span class="cmd">/hooks</span><span class="cmd-desc">Hooks actifs (PreToolUse, PostToolUse, etc).</span></div>
+        </div>
+      </div>
+      <div class="tip-card">
+        <h3><span class="tip-emoji">📄</span> Skills documents</h3>
+        <div class="cmd-list">
+          <div class="cmd-row"><span class="cmd">xlsx</span><span class="cmd-desc">Excel : .xlsx, .csv — lecture, édition, formules, charts.</span></div>
+          <div class="cmd-row"><span class="cmd">docx</span><span class="cmd-desc">Word : TOC, headers, images, tracked changes.</span></div>
+          <div class="cmd-row"><span class="cmd">pptx</span><span class="cmd-desc">PowerPoint : slides, layouts, speaker notes.</span></div>
+          <div class="cmd-row"><span class="cmd">pdf</span><span class="cmd-desc">PDFs : fusion, split, OCR, extraction tables.</span></div>
+        </div>
+      </div>
+      <div class="tip-card">
+        <h3><span class="tip-emoji">💡</span> Bonnes pratiques coût</h3>
+        <ul>
+          <li>Le <strong>cache read</strong> n'est pas facturé sur l'abo — privilégier les conversations longues <em>cohérentes</em> plutôt que de relancer des sessions courtes.</li>
+          <li>Pour la recherche/lecture en masse, déléguer à un sous-agent <span class="cmd">Explore</span> : il consomme dans son propre contexte, le parent reste léger.</li>
+          <li>Pour les tâches parallélisables, lancer plusieurs <strong>sous-agents en parallèle</strong> (1 message, plusieurs blocs <span class="cmd">Agent</span>) plutôt qu'en séquence.</li>
+          <li>Préférer <strong>Sonnet 4.6</strong> (5× moins cher qu'Opus) ou <strong>Haiku 4.5</strong> (25× moins cher) pour lecture / formatage / outils légers.</li>
+        </ul>
+        <div class="alert" style="margin-top:10px;background:rgba(37,99,235,.06);border-color:var(--accent-2)">
+          <strong>Tarification</strong> : output ≈ 5× input · cache write = 1.25× input · cache read = 0.1× input (gratuit sur l'abo Claude Code).
+        </div>
+      </div>`,
+    calculsHtml: `
+      <div class="calc-intro">
+        <h2>Toutes les formules utilisées dans le board</h2>
+        <p>Chaque appel API laisse une trace dans <code>~/.claude/projects/&lt;projet&gt;/&lt;uuid&gt;.jsonl</code>. Le champ <code>message.usage</code> donne 4 compteurs de tokens : <code>input_tokens</code>, <code>output_tokens</code>, <code>cache_creation_input_tokens</code> (CW), <code>cache_read_input_tokens</code> (CR). On note ci-dessous <strong>in</strong>, <strong>out</strong>, <strong>cw</strong>, <strong>cr</strong>.</p>
+      </div>
+      <div class="calc-card">
+        <h3><span class="calc-num">1</span> Coûts par appel</h3>
+        <div class="calc-block">
+          <div class="calc-name">Coût API théorique <span class="calc-tag">cost</span></div>
+          <div class="calc-formula"><code>cost = (in × $in + out × $out + cw × $cw + cr × $cr) / 1 000 000</code></div>
+          <div class="calc-desc">Ce que facturerait l'API Anthropic pour cet appel — cache read INCLUS au tarif réduit (10% du prix input).</div>
+          <div class="calc-example">
+            <strong>Exemple</strong> · Opus 4.7 · in = 1 200, out = 800, cw = 5 000, cr = 45 000<br>
+            <code>= (1 200×5 + 800×25 + 5 000×6.25 + 45 000×0.5) / 1e6</code><br>
+            <code>= (6 000 + 20 000 + 31 250 + 22 500) / 1e6 = <strong>$0.0798</strong></code>
+          </div>
+        </div>
+        <div class="calc-block">
+          <div class="calc-name">Coût forfait Claude Code <span class="calc-tag">costPlan</span></div>
+          <div class="calc-formula"><code>costPlan = (in × $in + out × $out + cw × $cw) / 1 000 000</code></div>
+          <div class="calc-desc">Ce que représente l'appel sur ton abonnement Claude Code. Le <strong>cache read est gratuit</strong> sur l'abo (Anthropic ne le facture pas via Claude Code, contrairement à l'API).</div>
+          <div class="calc-example">
+            <strong>Même exemple</strong><br>
+            <code>= (6 000 + 20 000 + 31 250) / 1e6 = <strong>$0.05725</strong></code><br>
+            Économie cache read : <code>0.0798 − 0.05725 = $0.0225</code>
+          </div>
+        </div>
+        <div class="calc-block">
+          <div class="calc-name">Coût « sans cache » (référence) <span class="calc-tag">costNoCache</span></div>
+          <div class="calc-formula"><code>costNoCache = ((in + cw + cr) × $in + out × $out) / 1 000 000</code></div>
+          <div class="calc-desc">Ce que coûterait l'appel <em>si le prompt cache n'existait pas</em> — toutes les entrées au tarif input plein. Sert uniquement à mesurer l'économie réalisée par le cache.</div>
+          <div class="calc-example">
+            <strong>Même exemple</strong><br>
+            <code>= ((1 200 + 5 000 + 45 000) × 5 + 800 × 25) / 1e6</code><br>
+            <code>= (51 200×5 + 20 000) / 1e6 = <strong>$0.276</strong></code><br>
+            Économie cache totale : <code>0.276 − 0.0798 = $0.1962</code> (≈ 71% d'économie)
+          </div>
+        </div>
+      </div>
+      <div class="calc-card">
+        <h3><span class="calc-num">2</span> Tarifs par modèle (USD / 1M tokens)</h3>
+        <table class="calc-table">
+          <thead><tr>
+            <th>Modèle</th><th class="num">$in</th><th class="num">$out</th>
+            <th class="num">$cw (cache write)</th><th class="num">$cr (cache read)</th>
+            <th class="num">Contexte max</th>
+          </tr></thead>
+          <tbody>
+            <tr><td><strong style="color:#7c3aed">Opus 4.7 / 4.6 / 4.5</strong></td><td class="num">$5</td><td class="num">$25</td><td class="num">$6.25</td><td class="num">$0.50</td><td class="num">1M (4.7) / 200K</td></tr>
+            <tr><td><strong style="color:#9d4edd">Opus 4.0</strong></td><td class="num">$15</td><td class="num">$75</td><td class="num">$18.75</td><td class="num">$1.50</td><td class="num">200K</td></tr>
+            <tr><td><strong style="color:#2563eb">Sonnet 4.6</strong></td><td class="num">$3</td><td class="num">$15</td><td class="num">$3.75</td><td class="num">$0.30</td><td class="num">1M</td></tr>
+            <tr><td><strong style="color:#059669">Haiku 4.5</strong></td><td class="num">$1</td><td class="num">$5</td><td class="num">$1.25</td><td class="num">$0.10</td><td class="num">200K</td></tr>
+          </tbody>
+        </table>
+        <div class="calc-desc" style="margin-top:8px">Ratios constants : <code>$out = 5 × $in</code> · <code>$cw = 1.25 × $in</code> · <code>$cr = 0.10 × $in</code>.</div>
+      </div>
+      <div class="calc-card">
+        <h3><span class="calc-num">3</span> Tokens & contexte</h3>
+        <div class="calc-block">
+          <div class="calc-name">Total tokens d'un appel</div>
+          <div class="calc-formula"><code>total = in + out + cw + cr</code></div>
+          <div class="calc-desc">Inclut tout — entrée et sortie, cache lu et cache écrit.</div>
+        </div>
+        <div class="calc-block">
+          <div class="calc-name">Contexte chargé par appel <span class="calc-tag">contextSize</span></div>
+          <div class="calc-formula"><code>contextSize = in + cw + cr</code></div>
+          <div class="calc-desc">Tokens <strong>envoyés au modèle</strong> à ce tour-ci. C'est ce qui « remplit » la fenêtre de contexte. L'output n'est pas compté car il est généré, pas envoyé — mais il sera capturé au tour suivant via <code>cr</code>.</div>
+          <div class="calc-example">
+            <strong>Exemple</strong> · in = 1 200, cw = 5 000, cr = 45 000<br>
+            <code>contextSize = 51 200 tokens</code>
+          </div>
+        </div>
+        <div class="calc-block">
+          <div class="calc-name">Contexte max d'une session</div>
+          <div class="calc-formula"><code>maxContext = max(contextSize) sur tous les appels de la session</code></div>
+          <div class="calc-desc">Le pic de remplissage observé. C'est cette valeur qui apparaît dans la colonne « Contexte ».</div>
+        </div>
+        <div class="calc-block">
+          <div class="calc-name">Contexte moyen</div>
+          <div class="calc-formula"><code>avgContext = Σ(contextSize) / nb_appels</code></div>
+        </div>
+        <div class="calc-block">
+          <div class="calc-name">% du contexte modèle</div>
+          <div class="calc-formula"><code>ctxPct = maxContext / contextMax(modèle) × 100</code></div>
+          <div class="calc-desc">
+            <strong>Code couleur</strong> :
+            <span class="ctx-chip" style="background:rgba(5,150,105,.12);color:#059669"><strong>&lt; 40%</strong> optimal</span>
+            <span class="ctx-chip" style="background:rgba(217,119,6,.12);color:#d97706"><strong>40–80%</strong> compacter</span>
+            <span class="ctx-chip" style="background:rgba(205,0,0,.12);color:#cd0000"><strong>&gt; 80%</strong> critique</span>
+            <br>Anthropic recommande <code>/compact</code> dès ~40%.
+          </div>
+          <div class="calc-example">
+            <strong>Exemple</strong> · maxContext = 320 000, modèle Opus 4.7 (max 1M)<br>
+            <code>ctxPct = 32%</code> → <span style="color:#059669;font-weight:600">optimal</span>
+          </div>
+        </div>
+      </div>
+      <div class="calc-card">
+        <h3><span class="calc-num">4</span> Efficacité du cache</h3>
+        <div class="calc-block">
+          <div class="calc-name">Taux de cache hit</div>
+          <div class="calc-formula"><code>cacheHit = cr / (cr + cw + in)</code></div>
+          <div class="calc-desc">Proportion du contexte servie depuis le cache existant. Plus c'est haut, mieux le prompt cache fonctionne.</div>
+          <div class="calc-example">
+            <strong>Exemple</strong> · in = 1 200, cw = 5 000, cr = 45 000<br>
+            <code>cacheHit = 45 000 / 51 200 = <strong>87.9%</strong></code>
+          </div>
+        </div>
+        <div class="calc-block">
+          <div class="calc-name">Économie réalisée par le cache</div>
+          <div class="calc-formula"><code>savings = costNoCache − cost</code></div>
+          <div class="calc-example">
+            <strong>Même exemple</strong> · costNoCache = $0.276, cost = $0.0798<br>
+            <code>savings = $0.1962</code> · soit <code>71%</code> d'économie.
+          </div>
+        </div>
+      </div>
+      <div class="calc-card">
+        <h3><span class="calc-num">5</span> Statistiques agrégées (sur la fenêtre)</h3>
+        <div class="calc-block">
+          <div class="calc-name">Coût total forfait / API</div>
+          <div class="calc-formula"><code>totalPlan = Σ costPlan</code> &nbsp;·&nbsp; <code>totalApi = Σ cost</code></div>
+        </div>
+        <div class="calc-block">
+          <div class="calc-name">Coût moyen par session</div>
+          <div class="calc-formula"><code>avgPerSession = totalPlan / nb_sessions</code></div>
+        </div>
+        <div class="calc-block">
+          <div class="calc-name">Écart vs moyenne (colonne Δ moy)</div>
+          <div class="calc-formula"><code>Δ = (sessionPlan − avgPerSession) / avgPerSession × 100</code></div>
+          <div class="calc-desc">Code couleur : rouge ≥ +50%, ambre ≥ +10%, vert si négatif.</div>
+        </div>
+        <div class="calc-block">
+          <div class="calc-name">Contexte max de la fenêtre (KPI)</div>
+          <div class="calc-formula"><code>peakPct = max(maxContext_s / contextMax(modèle_s) × 100) ∀ sessions</code></div>
+        </div>
+        <div class="calc-block">
+          <div class="calc-name">Sous-agents : compteur et coût</div>
+          <div class="calc-formula"><code>subCount = Σ |session.subagents|</code> &nbsp;·&nbsp; <code>subCost = Σ Σ subagent.costPlan</code></div>
+          <div class="calc-desc">Leur coût est déjà inclus dans le total de la session parente.</div>
+        </div>
+      </div>
+      <div class="calc-card">
+        <h3><span class="calc-num">6</span> Détection « session active »</h3>
+        <div class="calc-block">
+          <div class="calc-formula"><code>fresh = (now − lastEventTs) &lt; 90 secondes</code></div>
+          <div class="calc-desc">Une session est marquée « active » si son dernier événement API date de moins de 90 secondes.</div>
+        </div>
+      </div>
+      <div class="calc-foot">
+        <strong>Sources des données</strong> · le board lit uniquement les fichiers <code>.jsonl</code> sous <code>~/.claude/projects/</code> — aucun appel à l'API Anthropic, aucune télémétrie. Tous les calculs sont locaux et déterministes.
+      </div>`,
+  },
+  en: {
+    connecting: 'Connecting…', live: 'Live', reconnecting: 'Reconnecting…',
+    tabDashboard: 'Dashboard', tabSessions: 'Sessions', tabConseils: 'Tips', tabCalculs: 'Formulas',
+    headerForfait: 'Plan', headerApi: 'API',
+    today: 'Today', badgeForfait: 'plan', apiTheoretical: 'Theoretical API',
+    input: 'Input', output: 'Output', cacheR: 'Cache R', cacheW: 'Cache W',
+    apiCalls: 'API calls',
+    last7Days: 'Last 7 days', planNoCacheR: 'plan $ (no cache R)',
+    modelBreakdown: 'By model',
+    liveSessions: 'Live sessions', liveSessionsBadge: '3 most recent · sub-agents included',
+    liveFeed: 'Live feed — API calls',
+    waitingApi: 'Waiting for API calls…',
+    noRecentSession: 'No recent session',
+    loadingData: 'Loading data…',
+    subagents: 'Sub-agents',
+    byModelLabel: 'By model',
+    callsCount: 'Calls',
+    forfait: 'Plan', apiCol: 'API', total: 'Total',
+    kpiForfait: 'Plan', kpiApi: 'Theoretical API', kpiSessions: 'Sessions',
+    kpiAvg: 'Cost / session', kpiCache: 'Cache hit', kpiSavings: 'Cache savings',
+    kpiSubs: 'Sub-agents', kpiCtx: 'Max context',
+    topProjects: 'Top projects',
+    sessionsCostEvolution: 'Sessions cost evolution',
+    days: 'Days', hours: 'Hours',
+    window: 'Window', project: 'Project', load: 'Load',
+    todayOpt: 'Today (1d)', d3: '3 days', d7: '7 days', d14: '14 days', d30: '30 days',
+    allProjects: '— All —',
+    loadingSessions: 'Loading sessions…',
+    noSessionsInWindow: 'No session in this window',
+    clickLoad: 'Click "Load" to display sessions',
+    date: 'Date', uuid: 'UUID', model: 'Model',
+    contextCol: 'Context', deltaAvg: 'Δ avg', titleCol: 'Title',
+    timeline: 'Timeline — cost per session', timelineBadge: 'plan · chronological',
+    progression: 'Progression', agents: 'Agents',
+    description: 'Description',
+    optimal: 'optimal', toCompact: 'compact recommended', critical: 'critical',
+    tipCompactWarn: '⚠ Tip: use /compact to optimize cost and latency.',
+    tipCtxOk: '✓ Context under 40% threshold — optimal.',
+    fmtMonth: 'en-US', fmtSeparator: 'at',
+    // Dynamic strings
+    titleNotLoaded: 'title not yet loaded',
+    sessions: 'sessions', avg: 'avg.', max: 'max',
+    deltaVsApi: 'Δ vs API', perSession: '/ session',
+    projectsCount: 'project(s)', vsNoCache: 'vs no cache',
+    ofTotal: 'of total', subagentsLabel: 'Sub-agents',
+    description2: 'Description', byModel2: 'By model',
+    callsLabel: 'Calls', tokens: 'tokens',
+    agent: 'agent', agentsPl: 'agents',
+    sessionTotal: 'Session total', subagentsForfait: 'Sub-agents (plan)',
+    contextMax: 'Max context', average: 'Average',
+    contextStateLabel: 'State',
+    error: 'Error', loading: 'Loading…',
+    noSubAgent: 'No sub-agent invoked in this session.',
+    subagentsCountLine: (n, cost, pct) => `${n} sub-agent${n>1?'s':''} — total cost: ${cost} (${pct}% of session)\nClick to expand details.`,
+    pctOfContext: 'of context',
+    apiCallsBilled: 'Theoretical API cost',
+    planBilled: 'Claude Code plan cost',
+    saveCacheLabel: 'Cache savings',
+    deltaVsAvg: 'Deviation vs sessions avg',
+    inputTooltip: (n) => `Input tokens. Billed at full input price.\nTotal: ${n}`,
+    outputTooltip: (n) => `Output tokens. The most expensive (5× input).\nTotal: ${n}`,
+    cacheRTooltip: (n, ratio) => `Cache READ — reads from prompt cache.\n• API rate: 10% of input price (cr)\n• Claude Code plan: NOT BILLED\nTotal: ${n}\nRatio: ${ratio}% of context`,
+    cacheWTooltip: (n) => `Cache WRITE — writes to prompt cache.\nRate: 1.25× input price (expensive creation but amortized on subsequent reads).\nTotal: ${n}`,
+    totalTokens: (n) => `Total tokens (in + out + cw + cr): ${n}`,
+    planFormulaTooltip: (cost) => `PLAN cost (Claude Code subscription).\nFormula: in×$in + out×$out + cw×$cw\nCache read EXCLUDED.\n= ${cost}`,
+    apiFormulaTooltip: (cost, savings) => `Theoretical API cost (Anthropic API equivalent).\nFormula: in×$in + out×$out + cw×$cw + cr×$cr\n= ${cost}\nCache savings: ${savings}`,
+    deltaTooltip: (sign, pct, avg, sPlan) => `Deviation vs sessions average: ${sign}${pct}%\nAverage plan: ${avg}\nThis session: ${sPlan}`,
+    dateTooltip: (mtime, lastEvent) => `Last .jsonl file modification: ${mtime}\nLast API event: ${lastEvent}`,
+    modelTooltip: 'Dominant model (the one that generated the most cost).\nA session can mix several models (e.g. Opus parent + Haiku sub-agents) → click to see details.',
+    ctxTooltip: (max, pct, avg, avgPct, model, ctxMax, calls, state, advice) => `Max context: ${max} tokens (${pct}%)\nAverage: ${avg} tokens (${avgPct}%)\nLimit ${model}: ${ctxMax}\nCalls: ${calls}\n\nState: ${state}\n${advice}`,
+    conseilsHtml: `
+      <div class="tip-card">
+        <h3><span class="tip-emoji">🎯</span> Optimize context</h3>
+        <p>Anthropic recommends keeping context below <strong>~40%</strong> of the model's limit. Beyond that, every call replays everything: <strong>slower and more expensive</strong>.</p>
+        <div class="alert">
+          At <strong>40%</strong> threshold → <span class="cmd">/compact</span> (summarizes the conversation, keeps key context).<br>
+          Above <strong>80%</strong> or between independent tasks → <span class="cmd">/clear</span> (starts fresh, keeps CLAUDE.md).
+        </div>
+      </div>
+      <div class="tip-card">
+        <h3><span class="tip-emoji">🧠</span> Memory & project</h3>
+        <div class="cmd-list">
+          <div class="cmd-row"><span class="cmd">/memory</span><span class="cmd-desc">Display / edit persistent memory (user info, durable feedback, references).</span></div>
+          <div class="cmd-row"><span class="cmd">/init</span><span class="cmd-desc">Initialize <strong>CLAUDE.md</strong> with auto-generated docs of the current codebase — read at every session.</span></div>
+        </div>
+      </div>
+      <div class="tip-card">
+        <h3><span class="tip-emoji">🤖</span> Models & modes</h3>
+        <div class="cmd-list">
+          <div class="cmd-row"><span class="cmd">/model</span><span class="cmd-desc">Switch Opus (reasoning) ↔ Sonnet (balanced) ↔ Haiku (economical).</span></div>
+          <div class="cmd-row"><span class="cmd">/fast</span><span class="cmd-desc">Fast mode — Opus 4.6 streamed faster. No model downgrade.</span></div>
+          <div class="cmd-row"><span class="cmd">/config</span><span class="cmd-desc">Theme, default model, global options.</span></div>
+        </div>
+        <div class="alert" style="margin-top:10px;background:rgba(37,99,235,.06);border-color:var(--accent-2)">
+          <strong>Context limits</strong>:<br>
+          Opus 4.7 [1m] · Sonnet 4.6 = <strong>1M tokens</strong><br>
+          Opus 4.6/4.5 · Haiku 4.5 = <strong>200K tokens</strong>
+        </div>
+      </div>
+      <div class="tip-card">
+        <h3><span class="tip-emoji">🔧</span> Code workflows</h3>
+        <div class="cmd-list">
+          <div class="cmd-row"><span class="cmd">/review</span><span class="cmd-desc">Review a PR (URL or PR number).</span></div>
+          <div class="cmd-row"><span class="cmd">/security-review</span><span class="cmd-desc">Security audit of pending changes.</span></div>
+          <div class="cmd-row"><span class="cmd">/ultrareview</span><span class="cmd-desc">Multi-agent cloud review (billed, explicit request).</span></div>
+          <div class="cmd-row"><span class="cmd">/loop &lt;n&gt;</span><span class="cmd-desc">Loop a prompt at interval (<span class="cmd">/loop 5m /foo</span>). Without interval = auto-paced.</span></div>
+          <div class="cmd-row"><span class="cmd">/schedule</span><span class="cmd-desc">Scheduled agent (cron or one-shot).</span></div>
+        </div>
+      </div>
+      <div class="tip-card">
+        <h3><span class="tip-emoji">⚙️</span> Config & extensions</h3>
+        <div class="cmd-list">
+          <div class="cmd-row"><span class="cmd">/permissions</span><span class="cmd-desc">Allow/deny tools (Bash, MCP, etc).</span></div>
+          <div class="cmd-row"><span class="cmd">/mcp</span><span class="cmd-desc">Connected MCP servers.</span></div>
+          <div class="cmd-row"><span class="cmd">/ide</span><span class="cmd-desc">IDE extension (VS Code, JetBrains).</span></div>
+          <div class="cmd-row"><span class="cmd">/hooks</span><span class="cmd-desc">Active hooks (PreToolUse, PostToolUse, etc).</span></div>
+        </div>
+      </div>
+      <div class="tip-card">
+        <h3><span class="tip-emoji">📄</span> Document skills</h3>
+        <div class="cmd-list">
+          <div class="cmd-row"><span class="cmd">xlsx</span><span class="cmd-desc">Excel: .xlsx, .csv — read, edit, formulas, charts.</span></div>
+          <div class="cmd-row"><span class="cmd">docx</span><span class="cmd-desc">Word: TOC, headers, images, tracked changes.</span></div>
+          <div class="cmd-row"><span class="cmd">pptx</span><span class="cmd-desc">PowerPoint: slides, layouts, speaker notes.</span></div>
+          <div class="cmd-row"><span class="cmd">pdf</span><span class="cmd-desc">PDFs: merge, split, OCR, table extraction.</span></div>
+        </div>
+      </div>
+      <div class="tip-card">
+        <h3><span class="tip-emoji">💡</span> Cost best practices</h3>
+        <ul>
+          <li>The <strong>cache read</strong> is not billed on the plan — favor long <em>coherent</em> conversations rather than restarting short sessions.</li>
+          <li>For mass search/reading, delegate to a <span class="cmd">Explore</span> sub-agent: it consumes its own context, the parent stays light.</li>
+          <li>For parallelizable tasks, launch multiple <strong>sub-agents in parallel</strong> (1 message, several <span class="cmd">Agent</span> blocks) instead of sequentially.</li>
+          <li>Prefer <strong>Sonnet 4.6</strong> (5× cheaper than Opus) or <strong>Haiku 4.5</strong> (25× cheaper) for reading / formatting / lightweight tools.</li>
+        </ul>
+        <div class="alert" style="margin-top:10px;background:rgba(37,99,235,.06);border-color:var(--accent-2)">
+          <strong>Pricing</strong>: output ≈ 5× input · cache write = 1.25× input · cache read = 0.1× input (free on Claude Code plan).
+        </div>
+      </div>`,
+    calculsHtml: `
+      <div class="calc-intro">
+        <h2>All formulas used in the board</h2>
+        <p>Every API call leaves a trace in <code>~/.claude/projects/&lt;project&gt;/&lt;uuid&gt;.jsonl</code>. The <code>message.usage</code> field gives 4 token counters: <code>input_tokens</code>, <code>output_tokens</code>, <code>cache_creation_input_tokens</code> (CW), <code>cache_read_input_tokens</code> (CR). Below noted as <strong>in</strong>, <strong>out</strong>, <strong>cw</strong>, <strong>cr</strong>.</p>
+      </div>
+      <div class="calc-card">
+        <h3><span class="calc-num">1</span> Cost per call</h3>
+        <div class="calc-block">
+          <div class="calc-name">Theoretical API cost <span class="calc-tag">cost</span></div>
+          <div class="calc-formula"><code>cost = (in × $in + out × $out + cw × $cw + cr × $cr) / 1,000,000</code></div>
+          <div class="calc-desc">What the Anthropic API would charge for this call — cache read INCLUDED at reduced rate (10% of input price).</div>
+          <div class="calc-example">
+            <strong>Example</strong> · Opus 4.7 · in = 1,200, out = 800, cw = 5,000, cr = 45,000<br>
+            <code>= (1,200×5 + 800×25 + 5,000×6.25 + 45,000×0.5) / 1e6</code><br>
+            <code>= (6,000 + 20,000 + 31,250 + 22,500) / 1e6 = <strong>$0.0798</strong></code>
+          </div>
+        </div>
+        <div class="calc-block">
+          <div class="calc-name">Claude Code plan cost <span class="calc-tag">costPlan</span></div>
+          <div class="calc-formula"><code>costPlan = (in × $in + out × $out + cw × $cw) / 1,000,000</code></div>
+          <div class="calc-desc">What the call represents on your Claude Code subscription. <strong>Cache read is free</strong> on the plan (Anthropic doesn't bill it via Claude Code, unlike the API).</div>
+          <div class="calc-example">
+            <strong>Same example</strong><br>
+            <code>= (6,000 + 20,000 + 31,250) / 1e6 = <strong>$0.05725</strong></code><br>
+            Cache read savings: <code>0.0798 − 0.05725 = $0.0225</code>
+          </div>
+        </div>
+        <div class="calc-block">
+          <div class="calc-name">"No cache" cost (reference) <span class="calc-tag">costNoCache</span></div>
+          <div class="calc-formula"><code>costNoCache = ((in + cw + cr) × $in + out × $out) / 1,000,000</code></div>
+          <div class="calc-desc">What the call would cost <em>if prompt cache didn't exist</em> — all inputs at full price. Used only to measure the savings achieved by caching.</div>
+          <div class="calc-example">
+            <strong>Same example</strong><br>
+            <code>= ((1,200 + 5,000 + 45,000) × 5 + 800 × 25) / 1e6</code><br>
+            <code>= (51,200×5 + 20,000) / 1e6 = <strong>$0.276</strong></code><br>
+            Total cache savings: <code>0.276 − 0.0798 = $0.1962</code> (≈ 71% savings)
+          </div>
+        </div>
+      </div>
+      <div class="calc-card">
+        <h3><span class="calc-num">2</span> Pricing per model (USD / 1M tokens)</h3>
+        <table class="calc-table">
+          <thead><tr>
+            <th>Model</th><th class="num">$in</th><th class="num">$out</th>
+            <th class="num">$cw (cache write)</th><th class="num">$cr (cache read)</th>
+            <th class="num">Max context</th>
+          </tr></thead>
+          <tbody>
+            <tr><td><strong style="color:#7c3aed">Opus 4.7 / 4.6 / 4.5</strong></td><td class="num">$5</td><td class="num">$25</td><td class="num">$6.25</td><td class="num">$0.50</td><td class="num">1M (4.7) / 200K</td></tr>
+            <tr><td><strong style="color:#9d4edd">Opus 4.0</strong></td><td class="num">$15</td><td class="num">$75</td><td class="num">$18.75</td><td class="num">$1.50</td><td class="num">200K</td></tr>
+            <tr><td><strong style="color:#2563eb">Sonnet 4.6</strong></td><td class="num">$3</td><td class="num">$15</td><td class="num">$3.75</td><td class="num">$0.30</td><td class="num">1M</td></tr>
+            <tr><td><strong style="color:#059669">Haiku 4.5</strong></td><td class="num">$1</td><td class="num">$5</td><td class="num">$1.25</td><td class="num">$0.10</td><td class="num">200K</td></tr>
+          </tbody>
+        </table>
+        <div class="calc-desc" style="margin-top:8px">Constant ratios: <code>$out = 5 × $in</code> · <code>$cw = 1.25 × $in</code> · <code>$cr = 0.10 × $in</code>.</div>
+      </div>
+      <div class="calc-card">
+        <h3><span class="calc-num">3</span> Tokens & context</h3>
+        <div class="calc-block">
+          <div class="calc-name">Total tokens of a call</div>
+          <div class="calc-formula"><code>total = in + out + cw + cr</code></div>
+          <div class="calc-desc">Includes everything — input and output, cache read and cache written.</div>
+        </div>
+        <div class="calc-block">
+          <div class="calc-name">Context loaded per call <span class="calc-tag">contextSize</span></div>
+          <div class="calc-formula"><code>contextSize = in + cw + cr</code></div>
+          <div class="calc-desc">Tokens <strong>sent to the model</strong> at this turn. This is what "fills" the context window. Output is not counted because it's generated, not sent — but it will be captured at the next turn via <code>cr</code>.</div>
+          <div class="calc-example">
+            <strong>Example</strong> · in = 1,200, cw = 5,000, cr = 45,000<br>
+            <code>contextSize = 51,200 tokens</code>
+          </div>
+        </div>
+        <div class="calc-block">
+          <div class="calc-name">Max context of a session</div>
+          <div class="calc-formula"><code>maxContext = max(contextSize) over all calls of the session</code></div>
+          <div class="calc-desc">The peak fill observed. This is the value shown in the "Context" column.</div>
+        </div>
+        <div class="calc-block">
+          <div class="calc-name">Average context</div>
+          <div class="calc-formula"><code>avgContext = Σ(contextSize) / nb_calls</code></div>
+        </div>
+        <div class="calc-block">
+          <div class="calc-name">% of model context</div>
+          <div class="calc-formula"><code>ctxPct = maxContext / contextMax(model) × 100</code></div>
+          <div class="calc-desc">
+            <strong>Color code</strong>:
+            <span class="ctx-chip" style="background:rgba(5,150,105,.12);color:#059669"><strong>&lt; 40%</strong> optimal</span>
+            <span class="ctx-chip" style="background:rgba(217,119,6,.12);color:#d97706"><strong>40–80%</strong> compact</span>
+            <span class="ctx-chip" style="background:rgba(205,0,0,.12);color:#cd0000"><strong>&gt; 80%</strong> critical</span>
+            <br>Anthropic recommends <code>/compact</code> from ~40%.
+          </div>
+          <div class="calc-example">
+            <strong>Example</strong> · maxContext = 320,000, model Opus 4.7 (max 1M)<br>
+            <code>ctxPct = 32%</code> → <span style="color:#059669;font-weight:600">optimal</span>
+          </div>
+        </div>
+      </div>
+      <div class="calc-card">
+        <h3><span class="calc-num">4</span> Cache efficiency</h3>
+        <div class="calc-block">
+          <div class="calc-name">Cache hit rate</div>
+          <div class="calc-formula"><code>cacheHit = cr / (cr + cw + in)</code></div>
+          <div class="calc-desc">Proportion of context served from existing cache. The higher, the better the prompt cache works.</div>
+          <div class="calc-example">
+            <strong>Example</strong> · in = 1,200, cw = 5,000, cr = 45,000<br>
+            <code>cacheHit = 45,000 / 51,200 = <strong>87.9%</strong></code>
+          </div>
+        </div>
+        <div class="calc-block">
+          <div class="calc-name">Cache savings achieved</div>
+          <div class="calc-formula"><code>savings = costNoCache − cost</code></div>
+          <div class="calc-example">
+            <strong>Same example</strong> · costNoCache = $0.276, cost = $0.0798<br>
+            <code>savings = $0.1962</code> · i.e. <code>71%</code> savings.
+          </div>
+        </div>
+      </div>
+      <div class="calc-card">
+        <h3><span class="calc-num">5</span> Aggregate stats (over the window)</h3>
+        <div class="calc-block">
+          <div class="calc-name">Total plan / API cost</div>
+          <div class="calc-formula"><code>totalPlan = Σ costPlan</code> &nbsp;·&nbsp; <code>totalApi = Σ cost</code></div>
+        </div>
+        <div class="calc-block">
+          <div class="calc-name">Average cost per session</div>
+          <div class="calc-formula"><code>avgPerSession = totalPlan / nb_sessions</code></div>
+        </div>
+        <div class="calc-block">
+          <div class="calc-name">Deviation vs avg (Δ avg column)</div>
+          <div class="calc-formula"><code>Δ = (sessionPlan − avgPerSession) / avgPerSession × 100</code></div>
+          <div class="calc-desc">Color code: red ≥ +50%, amber ≥ +10%, green if negative.</div>
+        </div>
+        <div class="calc-block">
+          <div class="calc-name">Window's max context (KPI)</div>
+          <div class="calc-formula"><code>peakPct = max(maxContext_s / contextMax(model_s) × 100) ∀ sessions</code></div>
+        </div>
+        <div class="calc-block">
+          <div class="calc-name">Sub-agents: count and cost</div>
+          <div class="calc-formula"><code>subCount = Σ |session.subagents|</code> &nbsp;·&nbsp; <code>subCost = Σ Σ subagent.costPlan</code></div>
+          <div class="calc-desc">Their cost is already included in the parent session total.</div>
+        </div>
+      </div>
+      <div class="calc-card">
+        <h3><span class="calc-num">6</span> "Active session" detection</h3>
+        <div class="calc-block">
+          <div class="calc-formula"><code>fresh = (now − lastEventTs) &lt; 90 seconds</code></div>
+          <div class="calc-desc">A session is marked "active" if its last API event is less than 90 seconds old.</div>
+        </div>
+      </div>
+      <div class="calc-foot">
+        <strong>Data sources</strong> · the board only reads <code>.jsonl</code> files under <code>~/.claude/projects/</code> — no Anthropic API call, no telemetry. All calculations are local and deterministic.
+      </div>`,
+  },
+};
+
+const LANG_KEY = 'ccu-monitor-lang';
+let currentLang = (() => {
+  try { return localStorage.getItem(LANG_KEY) || (navigator.language?.startsWith('en') ? 'en' : 'fr'); }
+  catch { return 'fr'; }
+})();
+const t = key => I18N[currentLang][key] ?? I18N.fr[key] ?? key;
+
+function applyI18n() {
+  document.documentElement.lang = currentLang;
+  document.querySelectorAll('[data-i18n]').forEach(el => {
+    const k = el.dataset.i18n;
+    if (k) el.textContent = t(k);
+  });
+  document.querySelectorAll('[data-i18n-html]').forEach(el => {
+    const k = el.dataset.i18nHtml; if (k) el.innerHTML = t(k);
+  });
+  document.querySelectorAll('[data-i18n-attr]').forEach(el => {
+    const spec = el.dataset.i18nAttr; // ex: "title:tipCompactWarn"
+    spec.split(',').forEach(pair => {
+      const [attr, key] = pair.split(':').map(s => s.trim());
+      if (attr && key) el.setAttribute(attr, t(key));
+    });
+  });
+  document.querySelectorAll('.lang-btn').forEach(b => b.classList.toggle('active', b.dataset.lang === currentLang));
+}
+
+document.querySelectorAll('.lang-btn').forEach(b => {
+  b.addEventListener('click', () => {
+    currentLang = b.dataset.lang;
+    try { localStorage.setItem(LANG_KEY, currentLang); } catch {}
+    applyI18n();
+    // Re-render des sections dynamiques
+    renderToday(); renderFeed();
+    if (sessionsData?.length) renderSessions(sessionsData);
+    if (liveSessionsData?.length) renderLiveSessions();
+  });
+});
+
 // ── Helpers ──────────────────────────────────────────────
 const fmtTok = n => n >= 1e9 ? (n/1e9).toFixed(1)+'G' : n >= 1e6 ? (n/1e6).toFixed(1)+'M' : n >= 1e3 ? (n/1e3).toFixed(0)+'k' : String(n||0);
 const fmtCost = c => {
@@ -314,6 +1281,14 @@ const fmtCost = c => {
 };
 const fmtDate = ts => new Date(ts).toLocaleString('fr-FR', { month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit' });
 const fmtTime = ts => new Date(ts).toLocaleTimeString('fr-FR', { hour:'2-digit', minute:'2-digit', second:'2-digit' });
+const fmtRelative = ms => {
+  const s = Math.max(0, Math.floor((Date.now() - ms) / 1000));
+  if (s < 5)    return 'à l\'instant';
+  if (s < 60)   return `il y a ${s}s`;
+  if (s < 3600) return `il y a ${Math.floor(s/60)}min`;
+  if (s < 86400)return `il y a ${Math.floor(s/3600)}h`;
+  return `il y a ${Math.floor(s/86400)}j`;
+};
 const escHtml = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 const $ = id => document.getElementById(id);
 
@@ -328,9 +1303,8 @@ const MODEL_SHORT = {
   'claude-haiku-4-5-20251001':'Haiku 4.5','claude-haiku-4-5':'Haiku 4.5',
 };
 const modelColor = m => MODEL_COLORS[m] || '#9ca3af';
-const modelShort = m => MODEL_SHORT[m] || m.replace('claude-','').replace(/-\d{8}$/,'');
+const modelShort = m => MODEL_SHORT[m] || (m||'').replace('claude-','').replace(/-\d{8}$/,'');
 
-// Régression linéaire simple
 function linearRegression(values) {
   const n = values.length;
   if (n < 2) return values.map(v => v);
@@ -347,26 +1321,36 @@ function linearRegression(values) {
 }
 
 // ── State ────────────────────────────────────────────────
-let today       = { costUSD:0, input:0, output:0, cacheRead:0, cacheWrite:0, calls:0 };
-let feedItems   = [];
-let sessionsData= [];
-let chartMode   = 'daily';
+let today        = { costUSD:0, costPlanUSD:0, input:0, output:0, cacheRead:0, cacheWrite:0, calls:0 };
+let feedItems    = [];
+let sessionsData = [];
+let chartMode    = 'daily';
 let sessionsChart = null;
+let liveSessionsData = [];
 
 // ── Tabs ─────────────────────────────────────────────────
+let sessionsAutoLoaded = false;
 document.querySelectorAll('.tab-btn').forEach(btn => {
   btn.addEventListener('click', () => {
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
     document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
     btn.classList.add('active');
     $('tab-' + btn.dataset.tab).classList.add('active');
+    // Auto-load Sessions au premier passage
+    if (btn.dataset.tab === 'sessions' && !sessionsAutoLoaded) {
+      sessionsAutoLoaded = true;
+      $('sess-days').value = '1'; // Aujourd'hui par défaut
+      loadSessionsTab();
+    }
   });
 });
 
 // ── Dashboard ────────────────────────────────────────────
 function renderToday() {
-  $('today-cost').textContent  = fmtCost(today.costUSD);
-  $('header-cost').textContent = 'Aujourd\'hui : ' + fmtCost(today.costUSD);
+  $('today-cost-plan').textContent  = fmtCost(today.costPlanUSD);
+  $('today-cost-full').textContent  = fmtCost(today.costUSD);
+  $('header-cost-plan').textContent = fmtCost(today.costPlanUSD);
+  $('header-cost-full').textContent = fmtCost(today.costUSD);
   $('tk-input').textContent    = fmtTok(today.input);
   $('tk-output').textContent   = fmtTok(today.output);
   $('tk-cr').textContent       = fmtTok(today.cacheRead);
@@ -377,24 +1361,29 @@ function renderToday() {
 function buildFeedRow(c, isNew = false) {
   const hasCR = c.cacheRead  > 0;
   const hasCW = c.cacheWrite > 0;
+  const hasPlan = c.costPlan != null && c.costPlan !== c.cost;
 
-  // Ligne 2 : session UUID + titre
   let sessionLine = '';
   if (c.sessionId) {
     const uuid  = `<span class="f-uuid">${c.sessionId.slice(0,8)}</span>`;
     const sep   = `<span class="f-sep"> · </span>`;
     const title = c.sessionTitle
       ? `<span class="f-title">${escHtml(c.sessionTitle.slice(0,80))}</span>`
-      : `<span class="f-notitle">titre non encore chargé</span>`;
+      : `<span class="f-notitle">${t('titleNotLoaded')}</span>`;
     sessionLine = `<div class="feed-session-line">${uuid}${sep}${title}</div>`;
   }
+
+  const planCell = hasPlan
+    ? `<span class="fcp" title="Coût forfait Claude Code (cache read non facturé)">${fmtCost(c.costPlan)}</span>`
+    : `<span class="fcp"><span class="nil">—</span></span>`;
 
   return `<div class="feed-row${isNew ? ' new-row' : ''}">
     <div class="feed-main">
       <span class="ft">${fmtTime(c.ts)}</span>
       <span class="fm" style="color:${modelColor(c.model)}">${modelShort(c.model)}</span>
       <span class="fp">${escHtml(c.project)}</span>
-      <span class="fc">${fmtCost(c.cost)}</span>
+      <span class="fc" title="Coût API théorique">${fmtCost(c.cost)}</span>
+      ${planCell}
       <span class="fo">${fmtTok(c.output)}↑</span>
       <span class="fcr">${hasCR ? fmtTok(c.cacheRead)+' CR' : '<span class="nil">—</span>'}</span>
       <span class="fcw">${hasCW ? fmtTok(c.cacheWrite)+' CW' : '<span class="nil">—</span>'}</span>
@@ -405,11 +1394,11 @@ function buildFeedRow(c, isNew = false) {
 
 function renderFeed(highlightFirst = false) {
   if (!feedItems.length) {
-    $('live-feed').innerHTML = '<div style="padding:20px;text-align:center;color:#ccc;font-size:11px">En attente d\'appels API…</div>';
-    $('feed-count').textContent = '0 appels';
+    $('live-feed').innerHTML = `<div style="padding:24px;text-align:center;color:var(--text-dim);font-size:11px">${t('waitingApi')}</div>`;
+    $('feed-count').textContent = `0 ${t('apiCalls')}`;
     return;
   }
-  $('feed-count').textContent = feedItems.length + (feedItems.length >= 50 ? '+' : '') + ' appels';
+  $('feed-count').textContent = feedItems.length + (feedItems.length >= 50 ? '+' : '') + ' ' + t('apiCalls');
   $('live-feed').innerHTML = feedItems.map((c, i) => buildFeedRow(c, highlightFirst && i === 0)).join('');
 }
 
@@ -419,32 +1408,66 @@ function initCharts(stats) {
   const days = stats.daily.slice(-7);
   const todayStr = new Date().toISOString().slice(0,10);
 
+  if (dailyChart) { dailyChart.destroy(); dailyChart = null; }
   dailyChart = new Chart($('chart-daily').getContext('2d'), {
     type: 'bar',
     data: {
       labels: days.map(d => d.date === todayStr ? 'Auj.' : d.date.slice(5).replace('-','/')),
-      datasets: [{ data: days.map(d => +d.costUSD.toFixed(5)),
-        backgroundColor: days.map(d => d.date === todayStr ? '#1a1a1a22' : '#2563eb14'),
-        borderColor: days.map(d => d.date === todayStr ? '#1a1a1a' : '#2563eb'),
-        borderWidth: 2, borderRadius: 4 }],
+      datasets: [{
+        data: days.map(d => +(d.costPlanUSD ?? d.costUSD).toFixed(5)),
+        backgroundColor: days.map(d => d.date === todayStr ? 'rgba(205,0,0,.12)' : 'rgba(37,99,235,.10)'),
+        borderColor:     days.map(d => d.date === todayStr ? '#cd0000' : '#2563eb'),
+        borderWidth: 2, borderRadius: 5, borderSkipped: false,
+      }],
     },
     options: { responsive:true, maintainAspectRatio:false,
-      plugins:{ legend:{display:false}, tooltip:{ callbacks:{ label: ctx => ` ${fmtCost(ctx.raw)} — ${days[ctx.dataIndex]?.calls||0} appels` }}},
-      scales:{ y:{beginAtZero:true, ticks:{callback: v=>'$'+v.toFixed(2), font:{size:10}}, grid:{color:'#f0ebe1'}}, x:{ticks:{font:{size:11}}, grid:{display:false}} }
+      plugins:{
+        legend:{display:false},
+        tooltip:{
+          backgroundColor:'#1a1612', titleColor:'#fbfaf6', bodyColor:'#fbfaf6',
+          padding:10, cornerRadius:8, displayColors:false,
+          callbacks:{
+            title: items => items[0]?.label,
+            label: ctx => {
+              const d = days[ctx.dataIndex];
+              return [
+                ` Forfait : ${fmtCost(d.costPlanUSD ?? d.costUSD)}`,
+                ` API     : ${fmtCost(d.costUSD)}`,
+                ` Appels  : ${d.calls||0}`,
+              ];
+            },
+          },
+        },
+      },
+      scales:{
+        y:{beginAtZero:true, ticks:{callback: v=>'$'+v.toFixed(2), font:{size:10}, color:'#9a9389'}, grid:{color:'#f0ebe1', drawBorder:false}},
+        x:{ticks:{font:{size:11}, color:'#5b554c'}, grid:{display:false, drawBorder:false}}
+      }
     },
   });
 
-  const models = Object.entries(stats.byModel).filter(([,v]) => v.costUSD > 0.000001).sort((a,b) => b[1].costUSD - a[1].costUSD);
+  if (modelChart) { modelChart.destroy(); modelChart = null; }
+  const models = Object.entries(stats.byModel).filter(([,v]) => (v.costPlanUSD ?? v.costUSD) > 0.000001).sort((a,b) => (b[1].costPlanUSD ?? b[1].costUSD) - (a[1].costPlanUSD ?? a[1].costUSD));
   modelChart = new Chart($('chart-models').getContext('2d'), {
     type: 'doughnut',
     data: { labels: models.map(([m]) => modelShort(m)), datasets: [{
-      data: models.map(([,v]) => +v.costUSD.toFixed(6)),
-      backgroundColor: models.map(([m]) => modelColor(m)), borderWidth:3, borderColor:'#fff',
+      data: models.map(([,v]) => +(v.costPlanUSD ?? v.costUSD).toFixed(6)),
+      backgroundColor: models.map(([m]) => modelColor(m)),
+      borderWidth:3, borderColor:'#ffffff', hoverOffset: 6,
     }]},
-    options: { responsive:true, maintainAspectRatio:false, cutout:'60%',
-      plugins:{ legend:{position:'bottom', labels:{font:{size:11}, padding:8, boxWidth:10, color:'#555'}},
-        tooltip:{ callbacks:{ label: ctx => ` ${ctx.label} — ${fmtCost(models[ctx.dataIndex][1].costUSD)} (${models[ctx.dataIndex][1].calls} appels)` }}
-      }
+    options: { responsive:true, maintainAspectRatio:false, cutout:'62%',
+      plugins:{
+        legend:{position:'bottom', labels:{font:{size:11}, padding:10, boxWidth:10, boxHeight:10, color:'#5b554c', usePointStyle:true, pointStyle:'circle'}},
+        tooltip:{
+          backgroundColor:'#1a1612', titleColor:'#fbfaf6', bodyColor:'#fbfaf6', padding:10, cornerRadius:8,
+          callbacks:{
+            label: ctx => {
+              const v = models[ctx.dataIndex][1];
+              return ` ${ctx.label} — ${fmtCost(v.costPlanUSD ?? v.costUSD)} · ${v.calls} appels`;
+            },
+          },
+        },
+      },
     },
   });
 }
@@ -460,31 +1483,181 @@ async function loadStats() {
   $('loading').style.display = 'none';
 }
 
+// ── Live sessions ────────────────────────────────────────
+function renderLiveSessions() {
+  const wrap = $('live-sessions');
+  if (!liveSessionsData.length) {
+    wrap.innerHTML = `<div class="ls-empty">${t('noRecentSession')}</div>`;
+    return;
+  }
+  const now = Date.now();
+
+  wrap.innerHTML = liveSessionsData.slice(0, 3).map(s => {
+    const last = s.lastEventTs || s.mtime;
+    const fresh = (now - last) < 90_000;
+    const subs = [...(s.subagents || [])].sort((a,b) => (b.costPlan ?? b.cost) - (a.costPlan ?? a.cost));
+    const hasSubs = subs.length > 0;
+
+    // Récap par modèle (parent + sous-agents agrégés)
+    const modelMap = {};
+    const addToModel = (m, inT, outT, cr, cw, plan, full) => {
+      modelMap[m] ??= { in:0, out:0, cr:0, cw:0, plan:0, full:0, calls:0 };
+      modelMap[m].in += inT; modelMap[m].out += outT; modelMap[m].cr += cr; modelMap[m].cw += cw;
+      modelMap[m].plan += plan; modelMap[m].full += full; modelMap[m].calls++;
+    };
+    // Agrégat parent = total session - sous-agents
+    const subsSum = subs.reduce((a, sa) => ({
+      in: a.in+sa.usage.in, out: a.out+sa.usage.out, cr: a.cr+sa.usage.cr, cw: a.cw+sa.usage.cw,
+      plan: a.plan + (sa.costPlan ?? sa.cost), full: a.full + sa.cost,
+    }), { in:0, out:0, cr:0, cw:0, plan:0, full:0 });
+    if (s.parentModel) {
+      addToModel(s.parentModel,
+        s.usage.in - subsSum.in, s.usage.out - subsSum.out,
+        s.usage.cr - subsSum.cr, s.usage.cw - subsSum.cw,
+        (s.costPlan ?? s.cost) - subsSum.plan, s.cost - subsSum.full,
+      );
+    }
+    for (const sa of subs) addToModel(sa.model, sa.usage.in, sa.usage.out, sa.usage.cr, sa.usage.cw, sa.costPlan ?? sa.cost, sa.cost);
+    const modelRows = Object.entries(modelMap).sort((a,b) => b[1].plan - a[1].plan);
+
+    const tokensMini = `
+      <div class="ls-tokens">
+        <div class="ls-tk"><span>Input</span><b>${fmtTok(s.usage.in)}</b></div>
+        <div class="ls-tk"><span>Output</span><b>${fmtTok(s.usage.out)}</b></div>
+        <div class="ls-tk ls-tk-cr"><span>Cache R</span><b>${s.usage.cr ? fmtTok(s.usage.cr) : '—'}</b></div>
+        <div class="ls-tk ls-tk-cw"><span>Cache W</span><b>${s.usage.cw ? fmtTok(s.usage.cw) : '—'}</b></div>
+      </div>`;
+
+    const subagentsTable = hasSubs ? `
+      <div class="ls-detail">
+        <div class="ls-detail-title">${t('subagentsLabel')} <span class="ls-sub-count">${subs.length}</span></div>
+        <table class="ls-sub-table">
+          <thead><tr>
+            <th>${t('agent').charAt(0).toUpperCase() + t('agent').slice(1)}</th><th>${t('description2')}</th><th>${t('model')}</th>
+            <th class="num">${t('input')}</th><th class="num">${t('output')}</th>
+            <th class="num">CR</th><th class="num">CW</th>
+            <th class="num">${t('total')}</th><th class="num">${t('forfait')}</th><th class="num">${t('apiCol')}</th>
+          </tr></thead>
+          <tbody>${subs.map(sa => `<tr>
+            <td><div class="ls-sub-agent" style="color:${modelColor(sa.model)}">${escHtml(sa.agentType||'?')}</div></td>
+            <td><div class="ls-sub-desc-line" title="${escHtml(sa.description||'')}">${escHtml((sa.description||'').slice(0,80))}</div></td>
+            <td style="color:${modelColor(sa.model)}">${modelShort(sa.model)}</td>
+            <td class="num">${fmtTok(sa.usage.in)}</td>
+            <td class="num">${fmtTok(sa.usage.out)}</td>
+            <td class="num" style="color:var(--green)">${sa.usage.cr ? fmtTok(sa.usage.cr) : '—'}</td>
+            <td class="num" style="color:var(--gold)">${sa.usage.cw ? fmtTok(sa.usage.cw) : '—'}</td>
+            <td class="num">${fmtTok(sa.total)}</td>
+            <td class="num tbl-plan">${fmtCost(sa.costPlan ?? sa.cost)}</td>
+            <td class="num tbl-cost">${fmtCost(sa.cost)}</td>
+          </tr>`).join('')}</tbody>
+        </table>
+      </div>` : '';
+
+    const modelBreakdown = modelRows.length > 1 ? `
+      <div class="ls-detail">
+        <div class="ls-detail-title">${t('byModel2')}</div>
+        <table class="ls-sub-table">
+          <thead><tr>
+            <th>${t('model')}</th>
+            <th class="num">${t('callsLabel')}</th>
+            <th class="num">${t('input')}</th><th class="num">${t('output')}</th>
+            <th class="num">CR</th><th class="num">CW</th>
+            <th class="num">${t('forfait')}</th><th class="num">${t('apiCol')}</th>
+          </tr></thead>
+          <tbody>${modelRows.map(([m, v]) => `<tr>
+            <td style="color:${modelColor(m)};font-weight:600">${modelShort(m)}</td>
+            <td class="num" style="color:var(--text-mute)">${v.calls}</td>
+            <td class="num">${fmtTok(v.in)}</td>
+            <td class="num">${fmtTok(v.out)}</td>
+            <td class="num" style="color:var(--green)">${v.cr ? fmtTok(v.cr) : '—'}</td>
+            <td class="num" style="color:var(--gold)">${v.cw ? fmtTok(v.cw) : '—'}</td>
+            <td class="num tbl-plan">${fmtCost(v.plan)}</td>
+            <td class="num tbl-cost">${fmtCost(v.full)}</td>
+          </tr>`).join('')}</tbody>
+        </table>
+      </div>` : '';
+
+    return `<div class="live-session${fresh ? ' active' : ''}">
+      <div class="ls-header">
+        <span class="ls-model-pill" style="background:${modelColor(s.parentModel)}">${modelShort(s.parentModel)}</span>
+        <span class="ls-since${fresh ? ' fresh' : ''}" data-ts="${last}">${fmtRelative(last)}</span>
+      </div>
+      <div class="ls-title" title="${escHtml(s.title)}">${escHtml(s.title)}</div>
+      <div class="ls-meta">
+        <span class="ls-proj">${escHtml(s.project)}</span>
+        <span>·</span>
+        <span class="ls-uuid">${s.uuid.slice(0,8)}</span>
+        <span>·</span>
+        <span>${fmtTok(s.total)} ${t('tokens')}</span>
+        ${hasSubs ? `<span>·</span><span><b style="color:var(--text)">${subs.length}</b> ${subs.length>1?t('agentsPl'):t('agent')}</span>` : ''}
+      </div>
+      ${tokensMini}
+      <div class="ls-cost-row">
+        <span class="ls-cost-main" title="Coût forfait Claude Code">${fmtCost(s.costPlan ?? s.cost)}</span>
+        <span class="ls-cost-plan-label">forfait</span>
+        <span class="ls-cost-plan" style="margin-left:auto" title="Coût API théorique">${fmtCost(s.cost)} API</span>
+      </div>
+      ${modelBreakdown}
+      ${subagentsTable}
+    </div>`;
+  }).join('');
+}
+
+async function loadLiveSessions() {
+  try {
+    const res = await fetch('/api/live-sessions?limit=3');
+    liveSessionsData = await res.json();
+    renderLiveSessions();
+  } catch {}
+}
+
+// Refresh des libellés "il y a X" toutes les 15s
+setInterval(() => {
+  document.querySelectorAll('.ls-since[data-ts]').forEach(el => {
+    const ts = parseInt(el.dataset.ts, 10);
+    el.textContent = fmtRelative(ts);
+    const fresh = Date.now() - ts < 90_000;
+    el.classList.toggle('fresh', fresh);
+  });
+}, 15_000);
+
 // ── SSE ──────────────────────────────────────────────────
 const todayStr = () => new Date().toISOString().slice(0,10);
 let sseRetry = null;
+let liveRefreshTimer = null;
+function scheduleLiveRefresh() {
+  if (liveRefreshTimer) return;
+  liveRefreshTimer = setTimeout(() => { liveRefreshTimer = null; loadLiveSessions(); }, 1500);
+}
+
 function connectSSE() {
   const es = new EventSource('/api/events');
-  es.onopen = () => { $('live-dot').classList.add('connected'); $('live-label').textContent = 'Live'; };
+  es.onopen = () => { $('live-dot').classList.add('connected'); $('live-label').textContent = t('live'); };
   es.onmessage = e => {
     let d; try { d = JSON.parse(e.data); } catch { return; }
     if (d.type !== 'call') return;
     if (d.ts?.slice(0,10) === todayStr()) {
-      today.costUSD += d.cost; today.input += d.input; today.output += d.output;
+      today.costUSD     += d.cost;
+      today.costPlanUSD += (d.costPlan ?? d.cost);
+      today.input += d.input; today.output += d.output;
       today.cacheRead += d.cacheRead; today.cacheWrite += d.cacheWrite; today.calls++;
       renderToday();
     }
     feedItems.unshift(d);
     if (feedItems.length > 50) feedItems.pop();
     renderFeed(true);
+    scheduleLiveRefresh();
   };
   es.onerror = () => {
-    $('live-dot').classList.remove('connected'); $('live-label').textContent = 'Reconnexion…';
+    $('live-dot').classList.remove('connected'); $('live-label').textContent = t('reconnecting');
     es.close();
     if (sseRetry) clearTimeout(sseRetry);
     sseRetry = setTimeout(connectSSE, 3000);
   };
 }
+
+// Refresh régulier en filet de sécurité (toutes les 20s)
+setInterval(loadLiveSessions, 20_000);
 
 // ── Sessions chart ────────────────────────────────────────
 function buildSessionsChart(sessions) {
@@ -493,70 +1666,120 @@ function buildSessionsChart(sessions) {
   if (!sessions.length) { card.style.display = 'none'; return; }
   card.style.display = 'block';
 
-  // Groupement par jour ou par heure
-  const map = {};
-  for (const s of sessions) {
-    const d = new Date(s.mtime);
-    let key, label;
+  // Helpers pour bucketer + générer une clé canonique
+  const today0 = new Date().toISOString().slice(0,10);
+  const bucketStart = (ms, mode) => {
+    const d = new Date(ms);
+    if (mode === 'daily') { d.setHours(0,0,0,0); return d.getTime(); }
+    d.setMinutes(0, 0, 0); return d.getTime();
+  };
+  const stepMs   = chartMode === 'daily' ? 86400_000 : 3_600_000;
+  const fmtKey   = ms => {
+    const d = new Date(ms);
+    if (chartMode === 'daily') return d.toISOString().slice(0,10);
+    return `${d.toISOString().slice(0,10)}T${String(d.getHours()).padStart(2,'0')}`;
+  };
+  const fmtLabel = ms => {
+    const d = new Date(ms);
     if (chartMode === 'daily') {
-      key   = d.toISOString().slice(0,10);
-      const [yr, mo, dy] = key.split('-');
-      const today0 = new Date().toISOString().slice(0,10);
-      label = key === today0 ? 'Auj.' : `${parseInt(dy)}/${parseInt(mo)}`;
-    } else {
-      const day = d.toISOString().slice(0,10);
-      const h   = String(d.getHours()).padStart(2,'0');
-      key   = `${day}T${h}`;
-      const [, mo, dy] = day.split('-');
-      label = `${parseInt(dy)}/${parseInt(mo)} ${h}h`;
+      const k = d.toISOString().slice(0,10);
+      return k === today0 ? 'Auj.' : `${d.getDate()}/${d.getMonth()+1}`;
     }
-    map[key] ??= { key, label, costUSD: 0, count: 0 };
-    map[key].costUSD += s.cost;
+    return `${d.getDate()}/${d.getMonth()+1} ${String(d.getHours()).padStart(2,'0')}h`;
+  };
+
+  // 1. Bucket des sessions
+  const map = {};
+  let minMs = Infinity, maxMs = -Infinity;
+  for (const s of sessions) {
+    const bMs = bucketStart(s.mtime, chartMode);
+    if (bMs < minMs) minMs = bMs;
+    if (bMs > maxMs) maxMs = bMs;
+    const key = fmtKey(bMs);
+    map[key] ??= { ms: bMs, key, label: fmtLabel(bMs), costPlan: 0, costFull: 0, count: 0 };
+    map[key].costPlan += (s.costPlan ?? s.cost);
+    map[key].costFull += s.cost;
     map[key].count++;
   }
-  const groups = Object.values(map).sort((a,b) => a.key.localeCompare(b.key));
-  const values = groups.map(g => +g.costUSD.toFixed(4));
-  const trend  = linearRegression(values);
 
-  sessionsChart = new Chart($('chart-sessions').getContext('2d'), {
+  // 2. Remplir les buckets vides entre min et max — sinon la régression part à l'envers
+  //    car les indices ne reflètent plus le temps quand des trous sont sautés.
+  const groups = [];
+  if (isFinite(minMs)) {
+    // En mode horaire on borne à 14 jours pour éviter 720+ buckets
+    const cap = chartMode === 'hourly' ? 14 * 24 * stepMs : 60 * stepMs;
+    const safeMin = Math.max(minMs, maxMs - cap);
+    for (let t = safeMin; t <= maxMs; t += stepMs) {
+      const key = fmtKey(t);
+      groups.push(map[key] || { ms: t, key, label: fmtLabel(t), costPlan: 0, costFull: 0, count: 0 });
+    }
+  }
+
+  const valuesPlan = groups.map(g => +g.costPlan.toFixed(4));
+  const trend      = linearRegression(valuesPlan);
+
+  // En mode horaire, alléger les ticks de l'axe X (1 sur 4)
+  const xStep = chartMode === 'hourly' ? Math.max(1, Math.floor(groups.length / 16)) : 1;
+
+  const ctx = $('chart-sessions').getContext('2d');
+  const grad = ctx.createLinearGradient(0, 0, 0, 220);
+  grad.addColorStop(0, 'rgba(37,99,235,.28)');
+  grad.addColorStop(1, 'rgba(37,99,235,.04)');
+
+  sessionsChart = new Chart(ctx, {
     data: {
       labels: groups.map(g => g.label),
       datasets: [
         {
-          type: 'bar', label: 'Coût ($)', data: values, order: 2,
-          backgroundColor: '#2563eb14', borderColor: '#2563eb', borderWidth: 2, borderRadius: 4,
+          type: 'bar', label: 'Forfait', data: valuesPlan, order: 2,
+          backgroundColor: grad, borderColor: '#2563eb', borderWidth: 2, borderRadius: 5, borderSkipped: false,
         },
         {
           type: 'line', label: 'Tendance', data: trend, order: 1,
-          borderColor: '#cd0000', borderWidth: 2, borderDash: [6, 4],
-          pointRadius: 0, tension: 0.3, fill: false,
+          borderColor: '#cd0000', borderWidth: 2, borderDash: [5, 4],
+          pointRadius: 0, tension: 0.35, fill: false,
         },
       ],
     },
     options: {
       responsive: true, maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
       plugins: {
         legend: {
           display: true, position: 'top', align: 'end',
-          labels: { font:{size:10}, boxWidth:20, padding:12, color:'#888',
-            filter: item => item.datasetIndex === 1, // n'afficher que "Tendance"
+          labels: { font:{size:10}, boxWidth:14, boxHeight:2, padding:12, color:'#5b554c', usePointStyle:false },
+        },
+        tooltip: {
+          backgroundColor:'#1a1612', titleColor:'#fbfaf6', bodyColor:'#fbfaf6', padding:10, cornerRadius:8, displayColors:false,
+          callbacks: {
+            label: ctx => {
+              if (ctx.datasetIndex === 1) return ` Tendance : ${fmtCost(ctx.raw)}`;
+              const g = groups[ctx.dataIndex];
+              return [
+                ` Forfait : ${fmtCost(g.costPlan)}`,
+                ` API     : ${fmtCost(g.costFull)}`,
+                ` Sessions: ${g.count}`,
+              ];
+            },
           },
         },
-        tooltip: { callbacks: {
-          label: ctx => ctx.datasetIndex === 0
-            ? ` ${fmtCost(ctx.raw)} — ${groups[ctx.dataIndex]?.count||0} sessions`
-            : ` tendance : ${fmtCost(ctx.raw)}`,
-        }},
       },
       scales: {
-        y: { beginAtZero:true, ticks:{ callback: v => fmtCost(v), font:{size:10} }, grid:{color:'#f0ebe1'} },
-        x: { ticks:{ font:{size:10}, maxRotation: chartMode === 'hourly' ? 45 : 0 }, grid:{display:false} },
+        y: { beginAtZero:true, ticks:{ callback: v => fmtCost(v), font:{size:10}, color:'#9a9389' }, grid:{color:'#f0ebe1', drawBorder:false} },
+        x: {
+          ticks:{
+            font:{size:10}, color:'#5b554c',
+            maxRotation: chartMode === 'hourly' ? 45 : 0,
+            autoSkip: false,
+            callback: function(_, idx) { return idx % xStep === 0 ? this.getLabelForValue(idx) : ''; },
+          },
+          grid:{display:false, drawBorder:false},
+        },
       },
     },
   });
 }
 
-// Toggle Jours / Heures
 document.querySelectorAll('.ctoggle').forEach(btn => {
   btn.addEventListener('click', () => {
     document.querySelectorAll('.ctoggle').forEach(b => b.classList.remove('active'));
@@ -578,79 +1801,273 @@ function fmtDeltaHtml(pct) {
   return `<span class="delta-flat">${txt}</span>`;
 }
 
+// ── KPI strip ─────────────────────────────────────────────
+function renderKPIs(sessions) {
+  const $set = (id, v) => { const el = $(id); if (el) el.textContent = v; };
+  if (!sessions.length) {
+    ['kpi-plan','kpi-api','kpi-sessions','kpi-avg','kpi-cache','kpi-savings','kpi-subs','kpi-ctx'].forEach(id => $set(id, '—'));
+    ['kpi-plan-sub','kpi-api-sub','kpi-sessions-sub','kpi-avg-sub','kpi-cache-sub','kpi-savings-sub','kpi-subs-sub','kpi-ctx-sub'].forEach(id => $set(id, ''));
+    return;
+  }
+  const totalPlan    = sessions.reduce((s,x) => s + (x.costPlan ?? x.cost), 0);
+  const totalApi     = sessions.reduce((s,x) => s + x.cost, 0);
+  const totalNoCache = sessions.reduce((s,x) => s + (x.costNoCache || 0), 0);
+  const savings      = Math.max(0, totalNoCache - totalApi);
+
+  const sumIn = sessions.reduce((s,x) => s + x.usage.in, 0);
+  const sumCR = sessions.reduce((s,x) => s + x.usage.cr, 0);
+  const sumCW = sessions.reduce((s,x) => s + x.usage.cw, 0);
+  const cacheHit = (sumCR + sumCW + sumIn) > 0 ? sumCR / (sumCR + sumCW + sumIn) : 0;
+
+  const subCount = sessions.reduce((s,x) => s + (x.subagents?.length || 0), 0);
+  const subCost  = sessions.reduce((s,x) => s + (x.subagents?.reduce((a,sa) => a + (sa.costPlan ?? sa.cost), 0) || 0), 0);
+  const subPct   = totalPlan > 0 ? (subCost / totalPlan * 100) : 0;
+
+  $set('kpi-plan', fmtCost(totalPlan));
+  $set('kpi-plan-sub', `${t('deltaVsApi')} : −${fmtCost(totalApi - totalPlan)}`);
+  $set('kpi-api', fmtCost(totalApi));
+  $set('kpi-api-sub', `≈ ${fmtCost(totalApi/sessions.length)} ${t('perSession')}`);
+  $set('kpi-sessions', sessions.length);
+  $set('kpi-sessions-sub', `${(new Set(sessions.map(s => s.project))).size} ${t('projectsCount')}`);
+  $set('kpi-avg', fmtCost(totalPlan / sessions.length));
+  $set('kpi-avg-sub', `${t('max')} ${fmtCost(Math.max(...sessions.map(s => s.costPlan ?? s.cost)))}`);
+  $set('kpi-cache', `${(cacheHit*100).toFixed(0)}%`);
+  $set('kpi-cache-sub', `${fmtTok(sumCR)} CR / ${fmtTok(sumCW)} CW`);
+  $set('kpi-savings', fmtCost(savings));
+  $set('kpi-savings-sub', totalNoCache > 0 ? `${((savings/totalNoCache)*100).toFixed(0)}% ${t('vsNoCache')}` : '—');
+  $set('kpi-subs', subCount);
+  $set('kpi-subs-sub', `${fmtCost(subCost)} · ${subPct.toFixed(0)}% ${t('ofTotal')}`);
+
+  // Contexte max observé sur les sessions de la fenêtre
+  let peak = 0, peakModel = null, peakSession = null;
+  let weightedAvgPct = 0, weightedAvgDen = 0;
+  for (const s of sessions) {
+    const m = s.parentModel || 'unknown';
+    const cmax = modelCtxMax(m);
+    const pPct = s.maxContext ? (s.maxContext / cmax) * 100 : 0;
+    if (pPct > peak) { peak = pPct; peakModel = m; peakSession = s; }
+    if (s.callCount && s.avgContext) {
+      weightedAvgPct += (s.avgContext / cmax) * 100 * s.callCount;
+      weightedAvgDen += s.callCount;
+    }
+  }
+  const avgPct = weightedAvgDen ? weightedAvgPct / weightedAvgDen : 0;
+  const ctxEl = $('kpi-ctx');
+  ctxEl.textContent = `${peak.toFixed(0)}%`;
+  ctxEl.style.color = ctxColor(peak);
+  $set('kpi-ctx-sub', peakSession
+    ? `${peakSession.maxContext ? fmtTok(peakSession.maxContext) : '0'} / ${fmtTok(modelCtxMax(peakModel))} · moy. ${avgPct.toFixed(0)}%`
+    : '—');
+}
+
+// ── Top projects chart ────────────────────────────────────
+let projectsChart = null;
+function renderTopProjects(sessions) {
+  const ctx = $('chart-projects')?.getContext('2d');
+  if (!ctx) return;
+  if (projectsChart) { projectsChart.destroy(); projectsChart = null; }
+  if (!sessions.length) return;
+
+  const byProj = {};
+  for (const s of sessions) {
+    const p = s.project || 'unknown';
+    byProj[p] ??= { plan: 0, api: 0, count: 0 };
+    byProj[p].plan += (s.costPlan ?? s.cost);
+    byProj[p].api  += s.cost;
+    byProj[p].count++;
+  }
+  const top = Object.entries(byProj).sort((a,b) => b[1].plan - a[1].plan).slice(0, 8);
+
+  const grad = ctx.createLinearGradient(0, 0, 400, 0);
+  grad.addColorStop(0, 'rgba(37,99,235,.85)');
+  grad.addColorStop(1, 'rgba(124,58,237,.55)');
+
+  projectsChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: top.map(([p]) => p.length > 22 ? p.slice(0,20)+'…' : p),
+      datasets: [{
+        data: top.map(([,v]) => +v.plan.toFixed(4)),
+        backgroundColor: grad, borderColor: '#2563eb', borderWidth: 1, borderRadius: 4,
+      }],
+    },
+    options: {
+      indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor:'#1a1612', titleColor:'#fbfaf6', bodyColor:'#fbfaf6', padding:10, cornerRadius:8, displayColors:false,
+          callbacks: {
+            title: items => top[items[0].dataIndex][0],
+            label: ctx => {
+              const v = top[ctx.dataIndex][1];
+              return [` Forfait : ${fmtCost(v.plan)}`, ` API : ${fmtCost(v.api)}`, ` ${v.count} session${v.count>1?'s':''}`];
+            },
+          },
+        },
+      },
+      scales: {
+        x: { beginAtZero:true, ticks:{ callback: v => fmtCost(v), font:{size:10}, color:'#9a9389' }, grid:{color:'#f0ebe1', drawBorder:false} },
+        y: { ticks:{ font:{size:10}, color:'#5b554c' }, grid:{display:false, drawBorder:false} },
+      },
+    },
+  });
+}
+
+// ── Context window helpers ────────────────────────────────
+// Limite de contexte par modèle (tokens). Source : doc Anthropic.
+const MODEL_CTX = {
+  'claude-opus-4-7':           1_000_000, // 1M
+  'claude-opus-4-6':           200_000,
+  'claude-opus-4-5':           200_000,
+  'claude-opus-4':             200_000,
+  'claude-sonnet-4-6':         1_000_000,
+  'claude-haiku-4-5':          200_000,
+  'claude-haiku-4-5-20251001': 200_000,
+};
+const modelCtxMax = m => MODEL_CTX[m] || 200_000;
+
+// Couleur du % contexte : vert <40%, ambre 40–80%, rouge >80%
+// (Anthropic recommande /compact dès qu'on dépasse ~40% car les requêtes deviennent lentes et coûteuses)
+function ctxColor(pct) {
+  if (pct >= 80) return 'var(--accent)';
+  if (pct >= 40) return 'var(--gold)';
+  return 'var(--green)';
+}
+function ctxState(pct) {
+  if (pct >= 80) return 'critique';
+  if (pct >= 40) return 'à compacter';
+  return 'optimal';
+}
+
 function renderSessions(sessions) {
   buildSessionsChart(sessions);
   renderTimeline(sessions);
+  renderKPIs(sessions);
+  renderTopProjects(sessions);
 
   const body = $('sessions-body');
   if (!sessions.length) {
-    body.innerHTML = '<tr><td colspan="14" style="padding:32px;text-align:center;color:#ccc">Aucune session dans cette fenêtre</td></tr>';
+    body.innerHTML = `<tr><td colspan="15" style="padding:32px;text-align:center;color:var(--text-dim)">${t('noSessionsInWindow')}</td></tr>`;
     $('sessions-summary').textContent = '';
     return;
   }
 
-  const total    = sessions.reduce((s,x) => s+x.cost, 0);
-  const avg      = total / sessions.length;
-  const totalBrut = sessions.reduce((s,x) => s+x.costNoCache, 0);
+  const totalPlan = sessions.reduce((s,x) => s + (x.costPlan ?? x.cost), 0);
+  const totalFull = sessions.reduce((s,x) => s + x.cost, 0);
+  const avgPlan   = totalPlan / sessions.length;
 
   const rows = sessions.map((s, i) => {
-    const pct     = avg > 0 ? ((s.cost - avg) / avg) * 100 : 0;
+    const sPlan = s.costPlan ?? s.cost;
+    const pct     = avgPlan > 0 ? ((sPlan - avgPlan) / avgPlan) * 100 : 0;
     const hasSubs = s.subagents?.length > 0;
-    const subTotal = s.subagents?.reduce((a,sa) => a+sa.cost, 0) || 0;
+    const subTotal = s.subagents?.reduce((a,sa) => a + (sa.costPlan ?? sa.cost), 0) || 0;
+    const sNoCache = s.costNoCache ?? 0;
+    const cacheSavings = Math.max(0, sNoCache - s.cost);
+    const cacheRatio = (s.usage.cr + s.usage.cw + s.usage.in) > 0
+      ? s.usage.cr / (s.usage.cr + s.usage.cw + s.usage.in) : 0;
+
+    // Tooltips détaillés par cellule
+    const ttIn   = t('inputTooltip')(s.usage.in.toLocaleString());
+    const ttOut  = t('outputTooltip')(s.usage.out.toLocaleString());
+    const ttCR   = t('cacheRTooltip')(s.usage.cr.toLocaleString(), (cacheRatio*100).toFixed(1));
+    const ttCW   = t('cacheWTooltip')(s.usage.cw.toLocaleString());
+    const ttTotal = t('totalTokens')(s.total.toLocaleString());
+    const ttPlan = t('planFormulaTooltip')(fmtCost(sPlan));
+    const ttApi  = t('apiFormulaTooltip')(fmtCost(s.cost), fmtCost(cacheSavings));
+    const ttDelta = t('deltaTooltip')(pct >= 0 ? '+' : '', pct.toFixed(1), fmtCost(avgPlan), fmtCost(sPlan));
+    const locale = t('fmtMonth');
+    const ttDate = t('dateTooltip')(new Date(s.mtime).toLocaleString(locale), s.lastEventTs ? new Date(s.lastEventTs).toLocaleString(locale) : '—');
+    const ttModel = t('modelTooltip');
+    const ttSubs = hasSubs
+      ? t('subagentsCountLine')(s.subagents.length, fmtCost(subTotal), ((subTotal/sPlan)*100).toFixed(0))
+      : t('noSubAgent');
 
     const subRows = hasSubs ? `<tr class="detail-row" id="detail-${i}">
-      <td colspan="14"><div class="detail-inner"><table>
+      <td colspan="15"><div class="detail-inner"><table>
         <thead><tr>
-          <th>Agent</th><th>Description</th><th>Modèle</th>
-          <th class="num">In</th><th class="num">Out</th>
-          <th class="num">CR</th><th class="num">CW</th>
-          <th class="num">Total</th><th class="num">Coût</th>
+          <th>${t('agent').charAt(0).toUpperCase()+t('agent').slice(1)}</th><th>${t('description2')}</th><th>${t('model')}</th>
+          <th class="num">${t('input')}</th>
+          <th class="num">${t('output')}</th>
+          <th class="num">CR</th>
+          <th class="num">CW</th>
+          <th class="num">${t('total')}</th>
+          <th class="num">${t('forfait')}</th>
+          <th class="num">${t('apiCol')}</th>
         </tr></thead>
-        <tbody>${[...s.subagents].sort((a,b)=>b.cost-a.cost).map(sa => `<tr>
-          <td style="color:${modelColor(sa.model)};font-weight:600">${escHtml(sa.agentType)}</td>
-          <td style="color:#666;max-width:200px;overflow:hidden;text-overflow:ellipsis">${escHtml((sa.description||'').slice(0,80))}</td>
-          <td style="color:${modelColor(sa.model)}">${modelShort(sa.model)}</td>
-          <td class="num">${fmtTok(sa.usage.in)}</td>
-          <td class="num">${fmtTok(sa.usage.out)}</td>
-          <td class="num" style="color:#059669">${sa.usage.cr > 0 ? fmtTok(sa.usage.cr) : '—'}</td>
-          <td class="num" style="color:#d97706">${sa.usage.cw > 0 ? fmtTok(sa.usage.cw) : '—'}</td>
-          <td class="num">${fmtTok(sa.total)}</td>
-          <td class="num" style="font-weight:700">${fmtCost(sa.cost)}</td>
-        </tr>`).join('')}</tbody>
+        <tbody>${[...s.subagents].sort((a,b)=>(b.costPlan ?? b.cost)-(a.costPlan ?? a.cost)).map(sa => {
+          const saPlan = sa.costPlan ?? sa.cost;
+          const saSavings = Math.max(0, (sa.costNoCache || 0) - sa.cost);
+          return `<tr title="${escHtml(sa.description || sa.agentType || '')}\n\n${t('model')} : ${modelShort(sa.model)}\n${t('forfait')} : ${fmtCost(saPlan)}\n${t('apiCol')} : ${fmtCost(sa.cost)}\n${t('saveCacheLabel')} : ${fmtCost(saSavings)}">
+            <td style="color:${modelColor(sa.model)};font-weight:600">${escHtml(sa.agentType)}</td>
+            <td style="color:var(--text-soft);max-width:200px;overflow:hidden;text-overflow:ellipsis">${escHtml((sa.description||'').slice(0,80))}</td>
+            <td style="color:${modelColor(sa.model)}">${modelShort(sa.model)}</td>
+            <td class="num">${fmtTok(sa.usage.in)}</td>
+            <td class="num">${fmtTok(sa.usage.out)}</td>
+            <td class="num" style="color:var(--green)">${sa.usage.cr > 0 ? fmtTok(sa.usage.cr) : '—'}</td>
+            <td class="num" style="color:var(--gold)">${sa.usage.cw > 0 ? fmtTok(sa.usage.cw) : '—'}</td>
+            <td class="num">${fmtTok(sa.total)}</td>
+            <td class="num tbl-plan">${fmtCost(saPlan)}</td>
+            <td class="num tbl-cost">${fmtCost(sa.cost)}</td>
+          </tr>`;
+        }).join('')}</tbody>
       </table>
-      <div style="font-size:10px;color:#aaa;margin-top:6px;text-align:right">
-        Sous-agents : ${fmtCost(subTotal)} &nbsp;/&nbsp; Session totale : ${fmtCost(s.cost)}
+      <div style="font-size:10px;color:var(--text-mute);margin-top:8px;text-align:right">
+        ${t('subagentsForfait')} : <strong style="color:var(--text)">${fmtCost(subTotal)}</strong>
+        &nbsp;·&nbsp; ${t('sessionTotal')} : <strong style="color:var(--text)">${fmtCost(sPlan)}</strong>
       </div></div></td>
     </tr>` : '';
 
     return `<tr class="session-row" data-idx="${i}" title="${escHtml(s.title)}">
-      <td><span class="expand-icon">${hasSubs ? '▶' : ''}</span></td>
-      <td class="tbl-at">${fmtDate(s.mtime)}</td>
-      <td class="tbl-uuid">${s.uuid.slice(0,8)}</td>
-      <td class="tbl-model" style="color:${modelColor(s.parentModel)}">${modelShort(s.parentModel)}</td>
-      <td class="num">${fmtTok(s.usage.in)}</td>
-      <td class="num">${fmtTok(s.usage.out)}</td>
-      <td class="num" style="color:#059669">${s.usage.cr > 0 ? fmtTok(s.usage.cr) : '<span style="color:#e8e3d9">—</span>'}</td>
-      <td class="num" style="color:#d97706">${s.usage.cw > 0 ? fmtTok(s.usage.cw) : '<span style="color:#e8e3d9">—</span>'}</td>
-      <td class="num">${fmtTok(s.total)}</td>
-      <td class="num tbl-cost">${fmtCost(s.cost)}</td>
-      <td class="num tbl-brut">${fmtCost(s.costNoCache)}</td>
-      <td class="num">${fmtDeltaHtml(pct)}</td>
-      <td class="tbl-proj">${escHtml(s.project)}</td>
-      <td class="tbl-title">${escHtml(s.title.slice(0,70))}</td>
+      <td title="${ttSubs}"><span class="expand-icon">${hasSubs ? '▶' : ''}</span></td>
+      <td class="tbl-at" title="${ttDate}">${fmtDate(s.mtime)}</td>
+      <td class="tbl-uuid" title="UUID: ${s.uuid}">${s.uuid.slice(0,8)}</td>
+      <td class="tbl-model" style="color:${modelColor(s.parentModel)}" title="${ttModel}">${modelShort(s.parentModel)}</td>
+      <td class="num" title="${ttIn}">${fmtTok(s.usage.in)}</td>
+      <td class="num" title="${ttOut}">${fmtTok(s.usage.out)}</td>
+      <td class="num" style="color:var(--green)" title="${ttCR}">${s.usage.cr > 0 ? fmtTok(s.usage.cr) : '<span style="color:var(--text-dim)">—</span>'}</td>
+      <td class="num" style="color:var(--gold)" title="${ttCW}">${s.usage.cw > 0 ? fmtTok(s.usage.cw) : '<span style="color:var(--text-dim)">—</span>'}</td>
+      <td class="num" title="${ttTotal}">${fmtTok(s.total)}</td>
+      <td>${(() => {
+        const ctxMax = modelCtxMax(s.parentModel);
+        const pct = s.maxContext ? (s.maxContext / ctxMax) * 100 : 0;
+        const avgPct = s.avgContext ? (s.avgContext / ctxMax) * 100 : 0;
+        const color = ctxColor(pct);
+        const tip = t('ctxTooltip')(
+          s.maxContext ? s.maxContext.toLocaleString() : 0,
+          pct.toFixed(1),
+          s.avgContext ? Math.round(s.avgContext).toLocaleString() : 0,
+          avgPct.toFixed(1),
+          modelShort(s.parentModel),
+          ctxMax.toLocaleString(),
+          s.callCount || 0,
+          ctxState(pct).toUpperCase(),
+          pct >= 40 ? t('tipCompactWarn') : t('tipCtxOk'),
+        );
+        return `<div class="ctx-bar-wrap" title="${tip.replace(/"/g, '&quot;')}">
+          <div class="ctx-bar"><div class="ctx-bar-fill" style="width:${Math.min(pct, 100).toFixed(1)}%;background:${color}"></div></div>
+          <span class="ctx-pct" style="color:${color}">${pct.toFixed(0)}%</span>
+        </div>`;
+      })()}</td>
+      <td class="num tbl-plan" title="${ttPlan}">${fmtCost(sPlan)}</td>
+      <td class="num tbl-cost" title="${ttApi}">${fmtCost(s.cost)}</td>
+      <td class="num" title="${ttDelta}">${fmtDeltaHtml(pct)}</td>
+      <td class="tbl-proj" title="${t('project')}: ${escHtml(s.project)}">${escHtml(s.project)}</td>
+      <td class="tbl-title" title="${escHtml(s.title)}">${escHtml(s.title.slice(0,70))}</td>
     </tr>${subRows}`;
   }).join('');
 
   const summaryRow = `<tr class="summary-row">
     <td></td>
-    <td colspan="3" style="font-size:11px;color:#666">Total — ${sessions.length} sessions</td>
+    <td colspan="3" style="font-size:11px;color:var(--text-soft)">${t('total')} — ${sessions.length} ${t('sessions')}</td>
     <td class="num">${fmtTok(sessions.reduce((s,x)=>s+x.usage.in,0))}</td>
     <td class="num">${fmtTok(sessions.reduce((s,x)=>s+x.usage.out,0))}</td>
     <td class="num">${fmtTok(sessions.reduce((s,x)=>s+x.usage.cr,0))}</td>
     <td class="num">${fmtTok(sessions.reduce((s,x)=>s+x.usage.cw,0))}</td>
     <td class="num">${fmtTok(sessions.reduce((s,x)=>s+x.total,0))}</td>
-    <td class="num tbl-cost">${fmtCost(total)}</td>
-    <td class="num tbl-brut">${fmtCost(totalBrut)}</td>
+    <td></td>
+    <td class="num tbl-plan">${fmtCost(totalPlan)}</td>
+    <td class="num tbl-cost">${fmtCost(totalFull)}</td>
     <td colspan="3"></td>
   </tr>`;
 
@@ -665,7 +2082,7 @@ function renderSessions(sessions) {
     });
   });
 
-  $('sessions-summary').textContent = `${sessions.length} sessions · moy. ${fmtCost(avg)} · total ${fmtCost(total)}`;
+  $('sessions-summary').innerHTML = `${sessions.length} ${t('sessions')} · ${t('avg')} <strong>${fmtCost(avgPlan)}</strong> · ${t('forfait')} <strong>${fmtCost(totalPlan)}</strong> · ${t('apiCol')} <strong>${fmtCost(totalFull)}</strong>`;
 }
 
 function renderTimeline(sessions) {
@@ -674,49 +2091,69 @@ function renderTimeline(sessions) {
   if (!sessions.length) { card.style.display = 'none'; return; }
   card.style.display = 'block';
 
-  // Tri chronologique (plus ancien → plus récent)
   const sorted = [...sessions].sort((a, b) => a.mtime - b.mtime);
-  const totalCost = sorted.reduce((s, x) => s + x.cost, 0);
+  const totalCost = sorted.reduce((s, x) => s + (x.costPlan ?? x.cost), 0);
   let cumul = 0;
 
   body.innerHTML = sorted.map((s, i) => {
-    cumul += s.cost;
+    const sPlan = s.costPlan ?? s.cost;
+    cumul += sPlan;
     const pct = totalCost > 0 ? (cumul / totalCost) * 100 : 0;
-    // Couleur cumulé : vire vers rouge au-delà de 80% du total
-    const cumulColor = pct > 80 ? '#cd0000' : pct > 50 ? '#d97706' : '#1a1a1a';
+    const cumulColor = pct > 80 ? '#cd0000' : pct > 50 ? '#d97706' : '#1a1612';
     return `<tr>
-      <td class="num" style="color:#bbb;font-size:10px">${i + 1}</td>
+      <td class="num" style="color:var(--text-dim);font-size:10px">${i + 1}</td>
       <td class="tbl-at">${fmtDate(s.mtime)}</td>
       <td style="color:${modelColor(s.parentModel)};font-weight:600;white-space:nowrap">${modelShort(s.parentModel)}</td>
       <td class="t-title">${escHtml(s.title.slice(0, 65))}</td>
-      <td class="num tbl-cost">${fmtCost(s.cost)}</td>
+      <td class="num tbl-plan">${fmtCost(sPlan)}</td>
       <td class="num cumul-cell" style="color:${cumulColor}">${fmtCost(cumul)}</td>
       <td>
         <div class="cumul-bar-wrap">
           <div class="cumul-bar">
-            <div class="cumul-bar-fill" style="width:${pct.toFixed(1)}%;background:${cumulColor}88"></div>
+            <div class="cumul-bar-fill" style="width:${pct.toFixed(1)}%;background:${cumulColor}cc"></div>
           </div>
-          <span style="font-size:10px;color:#aaa;min-width:32px">${pct.toFixed(0)}%</span>
+          <span style="font-size:10px;color:var(--text-mute);min-width:32px">${pct.toFixed(0)}%</span>
         </div>
       </td>
-      <td class="num" style="color:#888">${s.subagents?.length || 0}</td>
+      <td class="num" style="color:var(--text-soft)">${s.subagents?.length || 0}</td>
     </tr>`;
   }).join('');
 }
 
+function refreshProjectOptions(allSessions) {
+  // Liste les projets vus, triés par coût forfait décroissant
+  const map = {};
+  for (const s of allSessions) {
+    const p = s.project || 'unknown';
+    map[p] ??= { plan: 0, count: 0 };
+    map[p].plan += (s.costPlan ?? s.cost);
+    map[p].count++;
+  }
+  const sorted = Object.entries(map).sort((a,b) => b[1].plan - a[1].plan);
+  const sel = $('sess-project-select');
+  const current = sel.value;
+  // Insère le compte avant le tiret final : "— Tous (12) —" ou "— All (12) —"
+  const allLabel = t('allProjects').replace(/—\s*$/, `(${allSessions.length}) —`);
+  sel.innerHTML = `<option value="">${allLabel}</option>` +
+    sorted.map(([p, v]) => `<option value="${escHtml(p)}">${escHtml(p)} · ${v.count} · ${fmtCost(v.plan)}</option>`).join('');
+  if (current && sorted.find(([p]) => p === current)) sel.value = current;
+}
+
 async function loadSessionsTab() {
   const days    = parseInt($('sess-days').value, 10);
-  const project = $('sess-project').value.trim() || null;
+  const project = $('sess-project-select').value.trim() || null;
   $('sessions-loading').style.display = 'block';
   $('sessions-body').innerHTML = '';
   try {
+    // Charge TOUT pour cette fenêtre (pour peupler le select), filtre côté client
     const params = new URLSearchParams({ days });
-    if (project) params.set('project', project);
     const res   = await fetch('/api/sessions?' + params);
-    sessionsData = await res.json();
+    const allData = await res.json();
+    refreshProjectOptions(allData);
+    sessionsData = project ? allData.filter(s => s.project === project) : allData;
     renderSessions(sessionsData);
   } catch (e) {
-    $('sessions-body').innerHTML = `<tr><td colspan="14" style="padding:24px;text-align:center;color:#cd0000">Erreur : ${escHtml(String(e))}</td></tr>`;
+    $('sessions-body').innerHTML = `<tr><td colspan="15" style="padding:24px;text-align:center;color:var(--accent)">${t('error')} : ${escHtml(String(e))}</td></tr>`;
   } finally {
     $('sessions-loading').style.display = 'none';
   }
@@ -724,10 +2161,12 @@ async function loadSessionsTab() {
 
 $('btn-load-sessions').addEventListener('click', loadSessionsTab);
 $('sess-days').addEventListener('change', loadSessionsTab);
+$('sess-project-select').addEventListener('change', loadSessionsTab);
 
 // ── Boot ─────────────────────────────────────────────────
-loadStats().then(connectSSE).catch(err => {
-  $('loading').innerHTML = `<div style="color:#cd0000">${escHtml(err.message)}</div>`;
+applyI18n();
+loadStats().then(() => { connectSSE(); loadLiveSessions(); }).catch(err => {
+  $('loading').innerHTML = `<div style="color:var(--accent)">${escHtml(err.message)}</div>`;
 });
 </script>
 </body>
