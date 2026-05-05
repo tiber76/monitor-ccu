@@ -714,6 +714,9 @@ const I18N = {
     topToolsCol: 'Outil',
     topToolsShare: '· part',
     topToolsFoot: (cost, pct) => `Total outils (forfait) : <strong style="color:var(--text)">${cost}</strong> · ${pct}% de la session`,
+    clickInvocations: 'Clique pour voir le détail des invocations',
+    invDetail: 'Commande / fichier / argument',
+    invMoreCapped: (n) => `${n} invocations au total — affiche les 100 plus coûteuses`,
     contextMax: 'Contexte max', average: 'Moyenne',
     contextStateLabel: 'État',
     error: 'Erreur', loading: 'Chargement…',
@@ -1010,6 +1013,9 @@ const I18N = {
     topToolsCol: 'Tool',
     topToolsShare: '· share',
     topToolsFoot: (cost, pct) => `Total tools (plan): <strong style="color:var(--text)">${cost}</strong> · ${pct}% of session`,
+    clickInvocations: 'Click to see invocation details',
+    invDetail: 'Command / file / argument',
+    invMoreCapped: (n) => `${n} invocations total — showing top 100 by cost`,
     contextMax: 'Max context', average: 'Average',
     contextStateLabel: 'State',
     error: 'Error', loading: 'Loading…',
@@ -2168,8 +2174,11 @@ function renderToolsBody(sessionIdx, sortKey) {
   const isCost = sortKey === 'costPlan';
   const fmtMetric = v => isCost ? fmtCost(v) : fmtTok(v);
 
+  const barColor = isCost ? 'var(--accent-2)' : sortKey === 'cacheWrite' ? 'var(--gold)' : 'var(--green)';
+
   holder.innerHTML = `<table>
     <thead><tr>
+      <th style="width:18px"></th>
       <th class="num" style="width:30px">#</th>
       <th>${t('topToolsCol')}</th>
       <th class="num">${t('callsLabel')}</th>
@@ -2182,9 +2191,42 @@ function renderToolsBody(sessionIdx, sortKey) {
     <tbody>${tools.map((tt, ti) => {
       const v = tt[sortKey] || 0;
       const pct = sumMetric > 0 ? (v / sumMetric) * 100 : 0;
-      const tip = `${tt.name} — ${tt.count} ${t('callsLabel').toLowerCase()}\n${t('forfait')} : ${fmtCost(tt.costPlan)}\n${t('apiCol')} : ${fmtCost(tt.cost)}\nOutput : ${tt.output.toLocaleString()} tokens\n${t('cacheW')} : ${(tt.cacheWrite||0).toLocaleString()} tokens`;
+      const hasInv = (tt.invocations || []).length > 0;
+      const tip = `${tt.name} — ${tt.count} ${t('callsLabel').toLowerCase()}\n${t('forfait')} : ${fmtCost(tt.costPlan)}\n${t('apiCol')} : ${fmtCost(tt.cost)}\nOutput : ${tt.output.toLocaleString()} tokens\n${t('cacheW')} : ${(tt.cacheWrite||0).toLocaleString()} tokens${hasInv ? '\n\n' + t('clickInvocations') : ''}`;
       const cwCell = tt.cacheWrite > 0 ? fmtTok(tt.cacheWrite) : '<span style="color:var(--text-dim)">—</span>';
-      return `<tr title="${escHtml(tip)}">
+      const detailId = `inv-${sessionIdx}-${ti}`;
+      const invRows = hasInv ? (() => {
+        const sortedInv = [...tt.invocations].sort((a, b) => (b[sortKey] || 0) - (a[sortKey] || 0)).slice(0, 100);
+        return `<tr class="inv-detail-row" id="${detailId}" style="display:none">
+          <td colspan="9" style="padding:4px 8px 10px 36px;background:var(--bg)">
+            <table style="width:100%;font-size:10px">
+              <thead><tr style="color:var(--text-mute)">
+                <th class="num" style="width:30px;padding:3px 6px">#</th>
+                <th style="padding:3px 6px">${t('invDetail')}</th>
+                <th class="num" style="padding:3px 6px">${t('output')}</th>
+                <th class="num" style="padding:3px 6px">${t('cacheW')}</th>
+                <th class="num" style="padding:3px 6px">${t('forfait')}</th>
+              </tr></thead>
+              <tbody>${sortedInv.map((inv, ii) => {
+                const lab = inv.label || '<span style="color:var(--text-dim)">—</span>';
+                const tsStr = inv.ts ? new Date(inv.ts).toLocaleTimeString(t('fmtMonth'), { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '';
+                const subTag = inv.sub ? `<span style="color:var(--accent-2);font-size:9px;font-weight:600;padding:1px 4px;border:1px solid var(--accent-2);border-radius:3px;margin-right:6px">SUB-AGENT</span>` : '';
+                const fullTip = (inv.label || '') + (tsStr ? '\n' + tsStr : '') + '\n' + t('forfait') + ' : ' + fmtCost(inv.costPlan);
+                return `<tr title="${escHtml(fullTip)}">
+                  <td class="num" style="color:var(--text-dim);padding:2px 6px">${ii + 1}</td>
+                  <td style="padding:2px 6px;font-family:'JetBrains Mono','DM Mono',monospace;color:var(--text-soft);max-width:600px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${subTag}${typeof lab === 'string' ? escHtml(lab) : lab}</td>
+                  <td class="num" style="padding:2px 6px">${fmtTok(inv.output)}</td>
+                  <td class="num" style="padding:2px 6px;color:var(--gold)">${inv.cacheWrite > 0 ? fmtTok(inv.cacheWrite) : '<span style="color:var(--text-dim)">—</span>'}</td>
+                  <td class="num tbl-plan" style="padding:2px 6px">${fmtCost(inv.costPlan)}</td>
+                </tr>`;
+              }).join('')}</tbody>
+            </table>
+            ${tt.invocations.length > 100 ? `<div style="font-size:10px;color:var(--text-mute);margin-top:4px;text-align:right">${t('invMoreCapped')(tt.invocations.length)}</div>` : ''}
+          </td>
+        </tr>`;
+      })() : '';
+      return `<tr class="tt-row" data-inv-id="${detailId}" title="${escHtml(tip)}" style="${hasInv ? 'cursor:pointer' : ''}">
+        <td style="color:var(--text-dim)">${hasInv ? '<span class="tt-arrow">▸</span>' : ''}</td>
         <td class="num" style="color:var(--text-dim)">${ti + 1}</td>
         <td style="font-weight:600;color:var(--text)">${escHtml(tt.name)}</td>
         <td class="num">${tt.count.toLocaleString()}</td>
@@ -2194,16 +2236,30 @@ function renderToolsBody(sessionIdx, sortKey) {
         <td class="num tbl-cost">${fmtCost(tt.cost)}</td>
         <td>
           <div class="cumul-bar-wrap">
-            <div class="cumul-bar"><div class="cumul-bar-fill" style="width:${pct.toFixed(1)}%;background:${isCost ? 'var(--accent-2)' : sortKey === 'cacheWrite' ? 'var(--gold)' : 'var(--green)'}"></div></div>
+            <div class="cumul-bar"><div class="cumul-bar-fill" style="width:${pct.toFixed(1)}%;background:${barColor}"></div></div>
             <span style="font-size:10px;color:var(--text-mute);min-width:30px">${pct.toFixed(0)}%</span>
           </div>
         </td>
-      </tr>`;
+      </tr>${invRows}`;
     }).join('')}</tbody>
   </table>
   <div style="font-size:10px;color:var(--text-mute);margin-top:6px;text-align:right">
     ${t('topToolsFoot')(fmtCost(sumPlan), pctOfSession.toFixed(0))}
   </div>`;
+
+  // Bind clic sur chaque ligne d'outil pour déplier ses invocations
+  holder.querySelectorAll('.tt-row[data-inv-id]').forEach(row => {
+    row.addEventListener('click', e => {
+      e.stopPropagation();
+      const target = document.getElementById(row.dataset.invId);
+      if (!target) return;
+      const open = target.style.display !== 'none';
+      target.style.display = open ? 'none' : 'table-row';
+      const arrow = row.querySelector('.tt-arrow');
+      if (arrow) arrow.textContent = open ? '▸' : '▾';
+    });
+  });
+
   holder.dataset.rendered = '1';
 }
 

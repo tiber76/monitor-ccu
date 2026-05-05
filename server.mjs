@@ -44,15 +44,43 @@ function loadLabels() {
   try { return JSON.parse(readFileSync(LABELS_PATH, 'utf8')); } catch { return {}; }
 }
 
-// Liste des tool_use présents dans une réponse assistant.
+// Liste des tool_use présents dans une réponse assistant (nom + input).
 // Claude Code logge parfois deux fois la même réponse (même message.id) — la
-// dedup sur message.id est gérée à part. Ici on extrait juste les noms.
-function extractToolNames(message) {
+// dedup sur message.id est gérée à part.
+function extractToolUses(message) {
   const c = message?.content;
   if (!Array.isArray(c)) return [];
   const out = [];
-  for (const b of c) if (b?.type === 'tool_use' && b.name) out.push(b.name);
+  for (const b of c) if (b?.type === 'tool_use' && b.name) out.push({ name: b.name, input: b.input || {} });
   return out;
+}
+
+// Résume l'input d'un tool_use en une ligne lisible (commande Bash, file_path
+// pour Read/Edit/Write, pattern Grep, URL WebFetch, etc).
+function toolLabel(name, input) {
+  if (!input || typeof input !== 'object') return '';
+  const trim = s => String(s).replace(/\s+/g, ' ').trim().slice(0, 250);
+  switch (name) {
+    case 'Bash':              return trim(input.command || '');
+    case 'Read':
+    case 'Edit':
+    case 'Write':
+    case 'NotebookEdit':      return trim(input.file_path || input.notebook_path || '');
+    case 'Grep':              return trim((input.pattern || '') + (input.path ? ' · ' + input.path : ''));
+    case 'Glob':              return trim((input.pattern || '') + (input.path ? ' · ' + input.path : ''));
+    case 'WebFetch':          return trim(input.url || '');
+    case 'WebSearch':         return trim(input.query || '');
+    case 'Agent':
+    case 'Task':              return trim((input.subagent_type ? `[${input.subagent_type}] ` : '') + (input.description || input.prompt || ''));
+    case 'TodoWrite':         return Array.isArray(input.todos) ? `${input.todos.length} todo${input.todos.length>1?'s':''}` : '';
+    case 'AskUserQuestion':   return Array.isArray(input.questions) ? trim(input.questions[0]?.question || '') : '';
+    case 'ExitPlanMode':      return trim(input.plan || '');
+  }
+  // mcp__* et autres : prend le premier champ string non vide parmi des clés probables
+  for (const k of ['command','file_path','path','url','query','title','name','description','message','prompt','content']) {
+    if (typeof input[k] === 'string' && input[k]) return trim(input[k]);
+  }
+  return '';
 }
 
 // Extrait un nom lisible depuis le chemin encodé du projet (cross-platform)
@@ -235,11 +263,12 @@ async function parseJsonlFull(filePath) {
         byModel[model].cost += cFull; byModel[model].costPlan += cPlan; byModel[model].costNoCache += cNoC;
       }
       // Attribution par tool_use du tour : split à parts égales si plusieurs tools
-      const tools = extractToolNames(r.message);
+      const tools = extractToolUses(r.message);
       if (tools.length) {
         const n = tools.length;
-        for (const tn of tools) {
-          byTool[tn] ??= { count: 0, in: 0, out: 0, cw: 0, cr: 0, cost: 0, costPlan: 0 };
+        for (const tu of tools) {
+          const tn = tu.name;
+          byTool[tn] ??= { count: 0, in: 0, out: 0, cw: 0, cr: 0, cost: 0, costPlan: 0, invocations: [] };
           byTool[tn].count++;
           byTool[tn].in       += inT  / n;
           byTool[tn].out      += outT / n;
@@ -247,6 +276,16 @@ async function parseJsonlFull(filePath) {
           byTool[tn].cr       += crT  / n;
           byTool[tn].cost     += cFull / n;
           byTool[tn].costPlan += cPlan / n;
+          if (byTool[tn].invocations.length < 200) {
+            byTool[tn].invocations.push({
+              ts:         r.timestamp || null,
+              label:      toolLabel(tn, tu.input),
+              output:     outT / n,
+              cacheWrite: cwT  / n,
+              costPlan:   cPlan / n,
+              cost:       cFull / n,
+            });
+          }
         }
       }
     }
@@ -343,11 +382,12 @@ async function parseSessionFull(filePath, projEncoded) {
         cost += cFull; costPlan += cPlan; costNoCache += cNoC;
         byModel[model].cost += cFull; byModel[model].costPlan += cPlan; byModel[model].costNoCache += cNoC;
       }
-      const tools = extractToolNames(r.message);
+      const tools = extractToolUses(r.message);
       if (tools.length) {
         const n = tools.length;
-        for (const tn of tools) {
-          byTool[tn] ??= { count: 0, in: 0, out: 0, cw: 0, cr: 0, cost: 0, costPlan: 0 };
+        for (const tu of tools) {
+          const tn = tu.name;
+          byTool[tn] ??= { count: 0, in: 0, out: 0, cw: 0, cr: 0, cost: 0, costPlan: 0, invocations: [] };
           byTool[tn].count++;
           byTool[tn].in       += inT  / n;
           byTool[tn].out      += outT / n;
@@ -355,6 +395,16 @@ async function parseSessionFull(filePath, projEncoded) {
           byTool[tn].cr       += crT  / n;
           byTool[tn].cost     += cFull / n;
           byTool[tn].costPlan += cPlan / n;
+          if (byTool[tn].invocations.length < 200) {
+            byTool[tn].invocations.push({
+              ts:         r.timestamp || null,
+              label:      toolLabel(tn, tu.input),
+              output:     outT / n,
+              cacheWrite: cwT  / n,
+              costPlan:   cPlan / n,
+              cost:       cFull / n,
+            });
+          }
         }
       }
     }
@@ -375,8 +425,14 @@ async function parseSessionFull(filePath, projEncoded) {
       for (const k of ['in','out','cw','cr','cost','costPlan','costNoCache']) byModel[m][k] += (u[k] || 0);
     }
     for (const [tn, t] of Object.entries(sa.byTool || {})) {
-      byTool[tn] ??= { count: 0, in: 0, out: 0, cw: 0, cr: 0, cost: 0, costPlan: 0 };
+      byTool[tn] ??= { count: 0, in: 0, out: 0, cw: 0, cr: 0, cost: 0, costPlan: 0, invocations: [] };
       for (const k of ['count','in','out','cw','cr','cost','costPlan']) byTool[tn][k] += (t[k] || 0);
+      if (Array.isArray(t.invocations)) {
+        for (const inv of t.invocations) {
+          if (byTool[tn].invocations.length >= 200) break;
+          byTool[tn].invocations.push({ ...inv, sub: true }); // marqueur sous-agent
+        }
+      }
     }
   }
 
@@ -390,6 +446,15 @@ async function parseSessionFull(filePath, projEncoded) {
       input:     Math.round(v.in),
       cacheWrite: Math.round(v.cw),
       cacheRead:  Math.round(v.cr),
+      invocations: (v.invocations || []).map(inv => ({
+        ts:         inv.ts,
+        label:      inv.label,
+        output:     Math.round(inv.output),
+        cacheWrite: Math.round(inv.cacheWrite),
+        costPlan:   inv.costPlan,
+        cost:       inv.cost,
+        sub:        !!inv.sub,
+      })),
     }))
     .sort((a, b) => b.costPlan - a.costPlan);
 
