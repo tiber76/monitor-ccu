@@ -921,55 +921,6 @@ const server = createServer(async (req, res) => {
     return;
   }
 
-  if (url.pathname === '/api/rate-limits') {
-    const cachePath = join(homedir(), '.claude', 'rate-limits-cache.json');
-    try {
-      const raw = JSON.parse(readFileSync(cachePath, 'utf8'));
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(raw));
-    } catch {
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ rate_limits: null, updated_at: null }));
-    }
-    return;
-  }
-
-  if (url.pathname === '/api/rate-limits-history') {
-    const histPath = join(homedir(), '.claude', 'rate-limits-history.jsonl');
-    const days = Math.min(90, Math.max(1, parseInt(url.searchParams.get('days') || '30', 10)));
-    try {
-      const cutoff = Date.now() / 1000 - days * 86400;
-      const lines = readFileSync(histPath, 'utf8').trim().split('\n').filter(Boolean);
-      const rows = lines.map(l => { try { return JSON.parse(l); } catch { return null; } })
-        .filter(r => r && r.ts >= cutoff);
-
-      // Agréger par jour (clé YYYY-MM-DD en UTC)
-      const byDay = {};
-      for (const r of rows) {
-        const day = new Date(r.ts * 1000).toISOString().slice(0, 10);
-        if (!byDay[day]) byDay[day] = { readings: [] };
-        byDay[day].readings.push(r);
-      }
-
-      // Pour chaque jour : pic 5H, dernière valeur 7J, 7J opus, 7J sonnet
-      const result = Object.entries(byDay).sort(([a], [b]) => a.localeCompare(b)).map(([day, { readings }]) => {
-        const peak5h        = Math.max(...readings.map(r => r.five_hour        ?? 0));
-        const last7d        = readings.at(-1)?.seven_day        ?? null;
-        const last7dOpus    = readings.at(-1)?.seven_day_opus   ?? null;
-        const last7dSonnet  = readings.at(-1)?.seven_day_sonnet ?? null;
-        const count         = readings.length;
-        return { day, peak5h, last7d, last7dOpus, last7dSonnet, count };
-      });
-
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(result));
-    } catch {
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify([]));
-    }
-    return;
-  }
-
   if (url.pathname === '/' || url.pathname === '/index.html') {
     try {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });

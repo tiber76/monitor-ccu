@@ -19,13 +19,6 @@ Reads directly from `~/.claude/projects/` — no API key, no external service, n
 - **Live sessions panel** — the 3 most recently active sessions with full breakdown: tokens, cost, per-model recap, sub-agents table (agent · description · model · in/out/CR/CW · cost). "Active" badge if last event < 90s
 - **Live API feed** aligned next to it — every API call appears in < 1.5s with model, project, cost, cache R/W and session title
 
-**History tab** *(requires the Stop hook — see below)*
-- **Plan usage history** over 7 / 14 / 30 / 90 days
-- **5-hour limit** — daily peak bar chart (max % reached during the day), color-coded: green < 75%, amber 75–90%, red ≥ 90%
-- **Weekly limit (all models)** — end-of-day value chart to track the weekly counter trend
-- **Weekly Opus vs Sonnet** — dual bar chart if model-specific data is available
-- Data accumulates automatically from the first Claude message after hook setup — zero tokens consumed
-
 **Sessions tab**
 - **KPI strip** — plan cost, theoretical API cost, sessions count, avg cost / session, cache hit rate, cache savings, sub-agents count, **max context %**
 - Top projects mini chart (horizontal bars)
@@ -48,42 +41,6 @@ All formulas used in the board explained with worked numerical examples — ever
 
 **Bilingual**
 FR / EN toggle in the header, detects browser language at first load, choice persisted in `localStorage`. Static and dynamic text are both translated.
-
-## Plan usage history (Stop hook)
-
-The **History tab** shows your 5-hour and weekly rate-limit consumption over time. This data is captured by a lightweight shell hook that Claude Code fires after each response — **no tokens consumed, no API call**.
-
-The hook reads `rate_limits` from the JSON payload Claude Code already sends to hooks (sourced from `anthropic-ratelimit-unified-*` HTTP response headers), and appends one line to `~/.claude/rate-limits-history.jsonl`.
-
-### Setup
-
-**1 — Copy the hook script**
-
-```bash
-cp hooks/monitor-rate-limits.sh ~/.claude/scripts/
-chmod +x ~/.claude/scripts/monitor-rate-limits.sh
-```
-
-**2 — Register the Stop hook in `~/.claude/settings.json`**
-
-```json
-{
-  "hooks": {
-    "Stop": [{
-      "matcher": "",
-      "hooks": [{
-        "type": "command",
-        "command": "~/.claude/scripts/monitor-rate-limits.sh",
-        "timeout": 3
-      }]
-    }]
-  }
-}
-```
-
-Data will appear in the History tab from the very next Claude message. The hook writes two files:
-- `~/.claude/rate-limits-cache.json` — latest snapshot (used by the live dashboard widget)
-- `~/.claude/rate-limits-history.jsonl` — append-only log (used by the History tab)
 
 ## Why two costs (plan vs API)?
 
