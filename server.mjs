@@ -44,6 +44,17 @@ function loadLabels() {
   try { return JSON.parse(readFileSync(LABELS_PATH, 'utf8')); } catch { return {}; }
 }
 
+// Liste des tool_use présents dans une réponse assistant.
+// Claude Code logge parfois deux fois la même réponse (même message.id) — la
+// dedup sur message.id est gérée à part. Ici on extrait juste les noms.
+function extractToolNames(message) {
+  const c = message?.content;
+  if (!Array.isArray(c)) return [];
+  const out = [];
+  for (const b of c) if (b?.type === 'tool_use' && b.name) out.push(b.name);
+  return out;
+}
+
 // Extrait un nom lisible depuis le chemin encodé du projet (cross-platform)
 function projectLabel(filePath) {
   const encoded = relative(PROJECTS_ROOT, filePath).split(sep)[0];
@@ -85,6 +96,7 @@ function scanSessionJsonl() {
 // ── DASHBOARD : parse JSONL avec filtre timestamp ─────────────────────────
 async function parseJsonlSince(filePath, sinceMs) {
   const calls = [];
+  const seenIds = new Set();
   try {
     const rl = createInterface({ input: createReadStream(filePath), crlfDelay: Infinity });
     for await (const line of rl) {
@@ -92,6 +104,11 @@ async function parseJsonlSince(filePath, sinceMs) {
       let r; try { r = JSON.parse(line); } catch { continue; }
       const u = r.message?.usage;
       if (!u) continue;
+      const mid = r.message?.id;
+      if (mid) {
+        if (seenIds.has(mid)) continue; // dedup : Claude Code logge parfois 2× la même réponse
+        seenIds.add(mid);
+      }
       const ts = r.timestamp ? new Date(r.timestamp).getTime() : 0;
       if (sinceMs && ts && ts < sinceMs) continue;
       const model = r.message?.model || 'unknown';
@@ -101,6 +118,7 @@ async function parseJsonlSince(filePath, sinceMs) {
       const crT = u.cache_read_input_tokens || 0;
       calls.push({
         ts: r.timestamp || null,
+        mid,
         model,
         cost: c.full,
         costPlan: c.plan,
@@ -182,6 +200,8 @@ function buildStats(calls) {
 async function parseJsonlFull(filePath) {
   const usage = { in: 0, out: 0, cw: 0, cr: 0 };
   const byModel = {};
+  const byTool = {}; // nom -> { count, in, out, cost, costPlan }
+  const seenIds = new Set();
   let cost = 0, costPlan = 0, costNoCache = 0;
   let maxContext = 0, sumContext = 0, callCount = 0;
   try {
@@ -191,6 +211,11 @@ async function parseJsonlFull(filePath) {
       let r; try { r = JSON.parse(line); } catch { continue; }
       const u = r.message?.usage;
       if (!u) continue;
+      const mid = r.message?.id;
+      if (mid) {
+        if (seenIds.has(mid)) continue;
+        seenIds.add(mid);
+      }
       const model = r.message?.model || 'unknown';
       const inT = u.input_tokens || 0, outT = u.output_tokens || 0;
       const cwT = u.cache_creation_input_tokens || 0, crT = u.cache_read_input_tokens || 0;
@@ -201,16 +226,32 @@ async function parseJsonlFull(filePath) {
       byModel[model] ??= { in: 0, out: 0, cw: 0, cr: 0, cost: 0, costPlan: 0, costNoCache: 0 };
       byModel[model].in += inT; byModel[model].out += outT; byModel[model].cw += cwT; byModel[model].cr += crT;
       const p = PRICING[model];
+      let cFull = 0, cPlan = 0;
       if (p) {
-        const cFull = (inT*p.in + outT*p.out + cwT*p.cw + crT*p.cr) / 1e6;       // API théorique
-        const cPlan = (inT*p.in + outT*p.out + cwT*p.cw) / 1e6;                  // Forfait Claude Code (cache read non facturé)
-        const cNoC  = ((inT+cwT+crT)*p.in + outT*p.out) / 1e6;                   // Si aucun cache (réf de comparaison)
+        cFull = (inT*p.in + outT*p.out + cwT*p.cw + crT*p.cr) / 1e6;       // API théorique
+        cPlan = (inT*p.in + outT*p.out + cwT*p.cw) / 1e6;                  // Forfait Claude Code (cache read non facturé)
+        const cNoC  = ((inT+cwT+crT)*p.in + outT*p.out) / 1e6;             // Si aucun cache (réf de comparaison)
         cost += cFull; costPlan += cPlan; costNoCache += cNoC;
         byModel[model].cost += cFull; byModel[model].costPlan += cPlan; byModel[model].costNoCache += cNoC;
       }
+      // Attribution par tool_use du tour : split à parts égales si plusieurs tools
+      const tools = extractToolNames(r.message);
+      if (tools.length) {
+        const n = tools.length;
+        for (const tn of tools) {
+          byTool[tn] ??= { count: 0, in: 0, out: 0, cw: 0, cr: 0, cost: 0, costPlan: 0 };
+          byTool[tn].count++;
+          byTool[tn].in       += inT  / n;
+          byTool[tn].out      += outT / n;
+          byTool[tn].cw       += cwT  / n;
+          byTool[tn].cr       += crT  / n;
+          byTool[tn].cost     += cFull / n;
+          byTool[tn].costPlan += cPlan / n;
+        }
+      }
     }
   } catch {}
-  return { usage, byModel, cost, costPlan, costNoCache, maxContext, avgContext: callCount ? sumContext / callCount : 0, callCount };
+  return { usage, byModel, byTool, cost, costPlan, costNoCache, maxContext, avgContext: callCount ? sumContext / callCount : 0, callCount };
 }
 
 async function scanSubagents(sessionDir) {
@@ -242,6 +283,8 @@ async function parseSessionFull(filePath, projEncoded) {
 
   const usage = { in: 0, out: 0, cw: 0, cr: 0 };
   const byModel = {};
+  const byTool = {};
+  const seenIds = new Set();
   let cost = 0, costPlan = 0, costNoCache = 0;
   let firstPrompt = null, userTitle = null;
   let lastEventTs = 0;
@@ -277,6 +320,11 @@ async function parseSessionFull(filePath, projEncoded) {
       }
       const u = r.message?.usage;
       if (!u) continue;
+      const mid = r.message?.id;
+      if (mid) {
+        if (seenIds.has(mid)) continue;
+        seenIds.add(mid);
+      }
       const model = r.message?.model || 'unknown';
       const inT = u.input_tokens || 0, outT = u.output_tokens || 0;
       const cwT = u.cache_creation_input_tokens || 0, crT = u.cache_read_input_tokens || 0;
@@ -287,12 +335,27 @@ async function parseSessionFull(filePath, projEncoded) {
       byModel[model] ??= { in: 0, out: 0, cw: 0, cr: 0, cost: 0, costPlan: 0, costNoCache: 0 };
       byModel[model].in += inT; byModel[model].out += outT; byModel[model].cw += cwT; byModel[model].cr += crT;
       const p = PRICING[model];
+      let cFull = 0, cPlan = 0;
       if (p) {
-        const cFull = (inT*p.in + outT*p.out + cwT*p.cw + crT*p.cr) / 1e6;
-        const cPlan = (inT*p.in + outT*p.out + cwT*p.cw) / 1e6;
+        cFull = (inT*p.in + outT*p.out + cwT*p.cw + crT*p.cr) / 1e6;
+        cPlan = (inT*p.in + outT*p.out + cwT*p.cw) / 1e6;
         const cNoC  = ((inT+cwT+crT)*p.in + outT*p.out) / 1e6;
         cost += cFull; costPlan += cPlan; costNoCache += cNoC;
         byModel[model].cost += cFull; byModel[model].costPlan += cPlan; byModel[model].costNoCache += cNoC;
+      }
+      const tools = extractToolNames(r.message);
+      if (tools.length) {
+        const n = tools.length;
+        for (const tn of tools) {
+          byTool[tn] ??= { count: 0, in: 0, out: 0, cw: 0, cr: 0, cost: 0, costPlan: 0 };
+          byTool[tn].count++;
+          byTool[tn].in       += inT  / n;
+          byTool[tn].out      += outT / n;
+          byTool[tn].cw       += cwT  / n;
+          byTool[tn].cr       += crT  / n;
+          byTool[tn].cost     += cFull / n;
+          byTool[tn].costPlan += cPlan / n;
+        }
       }
     }
   } catch {}
@@ -311,7 +374,24 @@ async function parseSessionFull(filePath, projEncoded) {
       byModel[m] ??= { in:0, out:0, cw:0, cr:0, cost:0, costPlan:0, costNoCache:0 };
       for (const k of ['in','out','cw','cr','cost','costPlan','costNoCache']) byModel[m][k] += (u[k] || 0);
     }
+    for (const [tn, t] of Object.entries(sa.byTool || {})) {
+      byTool[tn] ??= { count: 0, in: 0, out: 0, cw: 0, cr: 0, cost: 0, costPlan: 0 };
+      for (const k of ['count','in','out','cw','cr','cost','costPlan']) byTool[tn][k] += (t[k] || 0);
+    }
   }
+
+  // On renvoie tous les tools (pas seulement top 10) pour permettre tri client par cost/output/cw.
+  // Ça reste petit en pratique (~10-30 tools max).
+  const topTools = Object.entries(byTool)
+    .map(([name, v]) => ({
+      name, count: v.count,
+      costPlan: v.costPlan, cost: v.cost,
+      output:    Math.round(v.out),
+      input:     Math.round(v.in),
+      cacheWrite: Math.round(v.cw),
+      cacheRead:  Math.round(v.cr),
+    }))
+    .sort((a, b) => b.costPlan - a.costPlan);
 
   const labels  = loadLabels();
   const project = projEncoded.split('-').filter(Boolean).pop() || projEncoded;
@@ -324,6 +404,7 @@ async function parseSessionFull(filePath, projEncoded) {
     lastEventTs: lastEventTs || mtime,
     maxContext, avgContext: callCount ? sumContext / callCount : 0, callCount,
     total: usage.in + usage.out + usage.cw + usage.cr,
+    topTools,
     subagents: subagents.map(sa => ({
       agentType:   sa.agentType,
       description: sa.description,
@@ -400,6 +481,19 @@ function broadcast(data) {
 const filePositions  = new Map(); // filePath → lastSize
 const watchedFiles   = new Set();
 const sessionTitles  = new Map(); // filePath → titre extrait du 1er prompt user
+const seenMsgIdsLive = new Set(); // dedup global SSE (Claude Code logge parfois 2× la même réponse)
+function noteLiveMsgId(id) {
+  if (!id) return true;
+  if (seenMsgIdsLive.has(id)) return false;
+  seenMsgIdsLive.add(id);
+  if (seenMsgIdsLive.size > 5000) {
+    // Garde les 2500 plus récents (Set conserve l'ordre d'insertion)
+    const arr = [...seenMsgIdsLive];
+    seenMsgIdsLive.clear();
+    for (const x of arr.slice(-2500)) seenMsgIdsLive.add(x);
+  }
+  return true;
+}
 
 // Lit le premier prompt user pour construire un titre de session
 async function extractSessionTitle(filePath) {
@@ -444,6 +538,8 @@ async function readNewLines(filePath) {
     let r; try { r = JSON.parse(line); } catch { continue; }
     const u = r.message?.usage;
     if (!u) continue;
+    const mid = r.message?.id;
+    if (!noteLiveMsgId(mid)) continue; // doublon : même message.id déjà broadcasté
     const model = r.message?.model || 'unknown';
     const c = calcCost(u, model);
     const inT = u.input_tokens || 0;
@@ -452,6 +548,7 @@ async function readNewLines(filePath) {
     broadcast({
       type:         'call',
       ts:           r.timestamp || new Date().toISOString(),
+      mid,
       model,
       project:      proj,
       sessionId:    uuid,

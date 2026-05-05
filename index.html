@@ -710,6 +710,10 @@ const I18N = {
     callsLabel: 'Appels', tokens: 'tokens',
     agent: 'agent', agentsPl: 'agents',
     sessionTotal: 'Session totale', subagentsForfait: 'Sous-agents (forfait)',
+    topToolsTitle: 'Top 10 outils — coût attribué (parent + sous-agents)',
+    topToolsCol: 'Outil',
+    topToolsShare: '· part',
+    topToolsFoot: (cost, pct) => `Total outils (forfait) : <strong style="color:var(--text)">${cost}</strong> · ${pct}% de la session`,
     contextMax: 'Contexte max', average: 'Moyenne',
     contextStateLabel: 'État',
     error: 'Erreur', loading: 'Chargement…',
@@ -1002,6 +1006,10 @@ const I18N = {
     callsLabel: 'Calls', tokens: 'tokens',
     agent: 'agent', agentsPl: 'agents',
     sessionTotal: 'Session total', subagentsForfait: 'Sub-agents (plan)',
+    topToolsTitle: 'Top 10 tools — attributed cost (parent + sub-agents)',
+    topToolsCol: 'Tool',
+    topToolsShare: '· share',
+    topToolsFoot: (cost, pct) => `Total tools (plan): <strong style="color:var(--text)">${cost}</strong> · ${pct}% of session`,
     contextMax: 'Max context', average: 'Average',
     contextStateLabel: 'State',
     error: 'Error', loading: 'Loading…',
@@ -1651,6 +1659,8 @@ function connectSSE() {
   es.onmessage = e => {
     let d; try { d = JSON.parse(e.data); } catch { return; }
     if (d.type !== 'call') return;
+    // Dedup : si le même message.id est déjà dans le feed (race boot ou reread), on ignore
+    if (d.mid && feedItems.some(c => c.mid === d.mid)) return;
     if (d.ts?.slice(0,10) === todayStr()) {
       today.costUSD     += d.cost;
       today.costPlanUSD += (d.costPlan ?? d.cost);
@@ -1998,8 +2008,11 @@ function renderSessions(sessions) {
       ? t('subagentsCountLine')(s.subagents.length, fmtCost(subTotal), ((subTotal/sPlan)*100).toFixed(0))
       : t('noSubAgent');
 
-    const subRows = hasSubs ? `<tr class="detail-row" id="detail-${i}">
-      <td colspan="15"><div class="detail-inner"><table>
+    const topTools = s.topTools || [];
+    const hasTools = topTools.length > 0;
+    const hasDetail = hasSubs || hasTools;
+
+    const subAgentsBlock = hasSubs ? `<table>
         <thead><tr>
           <th>${t('agent').charAt(0).toUpperCase()+t('agent').slice(1)}</th><th>${t('description2')}</th><th>${t('model')}</th>
           <th class="num">${t('input')}</th>
@@ -2030,11 +2043,27 @@ function renderSessions(sessions) {
       <div style="font-size:10px;color:var(--text-mute);margin-top:8px;text-align:right">
         ${t('subagentsForfait')} : <strong style="color:var(--text)">${fmtCost(subTotal)}</strong>
         &nbsp;·&nbsp; ${t('sessionTotal')} : <strong style="color:var(--text)">${fmtCost(sPlan)}</strong>
-      </div></div></td>
+      </div>` : '';
+
+    const topToolsBlock = hasTools ? `
+      <div class="tt-header" style="margin-top:${hasSubs ? '14px' : '0'};display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap">
+        <div style="font-size:10px;color:var(--text-mute);text-transform:uppercase;letter-spacing:.5px;font-weight:600">
+          ${t('topToolsTitle')}
+        </div>
+        <div class="chart-toggle" style="margin-left:auto" data-tools-toggle="${i}">
+          <button class="ctoggle active" data-sort="costPlan">${t('forfait')} $</button>
+          <button class="ctoggle" data-sort="output">${t('output')}</button>
+          <button class="ctoggle" data-sort="cacheWrite">${t('cacheW')}</button>
+        </div>
+      </div>
+      <div class="tt-body" data-tools-body="${i}"></div>` : '';
+
+    const subRows = hasDetail ? `<tr class="detail-row" id="detail-${i}">
+      <td colspan="15"><div class="detail-inner">${subAgentsBlock}${topToolsBlock}</div></td>
     </tr>` : '';
 
     return `<tr class="session-row" data-idx="${i}" title="${escHtml(s.title)}">
-      <td title="${ttSubs}"><span class="expand-icon">${hasSubs ? '▶' : ''}</span></td>
+      <td title="${ttSubs}"><span class="expand-icon">${hasDetail ? '▶' : ''}</span></td>
       <td class="tbl-at" title="${ttDate}">${fmtDate(s.mtime)}</td>
       <td class="tbl-uuid" title="UUID: ${s.uuid}">${s.uuid.slice(0,8)}</td>
       <td class="tbl-model" style="color:${modelColor(s.parentModel)}" title="${ttModel}">${modelShort(s.parentModel)}</td>
@@ -2094,10 +2123,88 @@ function renderSessions(sessions) {
       if (!detail) return;
       const open = detail.classList.toggle('open');
       row.classList.toggle('expanded', open);
+      // Premier dépliage : rendre la table top-tools (tri par défaut = costPlan)
+      if (open) {
+        const holder = detail.querySelector('[data-tools-body]');
+        if (holder && !holder.dataset.rendered) {
+          const idx = holder.dataset.toolsBody;
+          renderToolsBody(idx, 'costPlan');
+        }
+      }
+    });
+  });
+
+  // Boutons de tri sur le bloc Top tools (Forfait / Output / Cache Write)
+  body.querySelectorAll('[data-tools-toggle]').forEach(toggle => {
+    toggle.querySelectorAll('.ctoggle').forEach(btn => {
+      btn.addEventListener('click', e => {
+        e.stopPropagation(); // ne pas replier la session
+        const idx = toggle.dataset.toolsToggle;
+        const sortKey = btn.dataset.sort;
+        toggle.querySelectorAll('.ctoggle').forEach(b => b.classList.toggle('active', b === btn));
+        renderToolsBody(idx, sortKey);
+      });
     });
   });
 
   $('sessions-summary').innerHTML = `${sessions.length} ${t('sessions')} · ${t('avg')} <strong>${fmtCost(avgPlan)}</strong> · ${t('forfait')} <strong>${fmtCost(totalPlan)}</strong> · ${t('apiCol')} <strong>${fmtCost(totalFull)}</strong>`;
+}
+
+// Rend la table Top Tools pour une session donnée, triée par sortKey (costPlan|output|cacheWrite).
+// On garde le top 10 selon la métrique choisie.
+function renderToolsBody(sessionIdx, sortKey) {
+  const s = sessionsData[sessionIdx];
+  if (!s || !s.topTools?.length) return;
+  const holder = document.querySelector(`[data-tools-body="${sessionIdx}"]`);
+  if (!holder) return;
+
+  const sPlan = s.costPlan ?? s.cost;
+  const tools = [...s.topTools].sort((a, b) => (b[sortKey] || 0) - (a[sortKey] || 0)).slice(0, 10);
+  const sumMetric = tools.reduce((a, x) => a + (x[sortKey] || 0), 0);
+  const sumPlan   = tools.reduce((a, x) => a + (x.costPlan || 0), 0);
+  const pctOfSession = sPlan > 0 ? (sumPlan / sPlan) * 100 : 0;
+
+  const metricLabel = sortKey === 'output' ? t('output') : sortKey === 'cacheWrite' ? t('cacheW') : t('forfait') + ' $';
+  const isCost = sortKey === 'costPlan';
+  const fmtMetric = v => isCost ? fmtCost(v) : fmtTok(v);
+
+  holder.innerHTML = `<table>
+    <thead><tr>
+      <th class="num" style="width:30px">#</th>
+      <th>${t('topToolsCol')}</th>
+      <th class="num">${t('callsLabel')}</th>
+      <th class="num">${t('output')}</th>
+      <th class="num">${t('cacheW')}</th>
+      <th class="num">${t('forfait')}</th>
+      <th class="num">${t('apiCol')}</th>
+      <th>${metricLabel} ${t('topToolsShare')}</th>
+    </tr></thead>
+    <tbody>${tools.map((tt, ti) => {
+      const v = tt[sortKey] || 0;
+      const pct = sumMetric > 0 ? (v / sumMetric) * 100 : 0;
+      const tip = `${tt.name} — ${tt.count} ${t('callsLabel').toLowerCase()}\n${t('forfait')} : ${fmtCost(tt.costPlan)}\n${t('apiCol')} : ${fmtCost(tt.cost)}\nOutput : ${tt.output.toLocaleString()} tokens\n${t('cacheW')} : ${(tt.cacheWrite||0).toLocaleString()} tokens`;
+      const cwCell = tt.cacheWrite > 0 ? fmtTok(tt.cacheWrite) : '<span style="color:var(--text-dim)">—</span>';
+      return `<tr title="${escHtml(tip)}">
+        <td class="num" style="color:var(--text-dim)">${ti + 1}</td>
+        <td style="font-weight:600;color:var(--text)">${escHtml(tt.name)}</td>
+        <td class="num">${tt.count.toLocaleString()}</td>
+        <td class="num">${fmtTok(tt.output)}</td>
+        <td class="num" style="color:var(--gold)">${cwCell}</td>
+        <td class="num tbl-plan">${fmtCost(tt.costPlan)}</td>
+        <td class="num tbl-cost">${fmtCost(tt.cost)}</td>
+        <td>
+          <div class="cumul-bar-wrap">
+            <div class="cumul-bar"><div class="cumul-bar-fill" style="width:${pct.toFixed(1)}%;background:${isCost ? 'var(--accent-2)' : sortKey === 'cacheWrite' ? 'var(--gold)' : 'var(--green)'}"></div></div>
+            <span style="font-size:10px;color:var(--text-mute);min-width:30px">${pct.toFixed(0)}%</span>
+          </div>
+        </td>
+      </tr>`;
+    }).join('')}</tbody>
+  </table>
+  <div style="font-size:10px;color:var(--text-mute);margin-top:6px;text-align:right">
+    ${t('topToolsFoot')(fmtCost(sumPlan), pctOfSession.toFixed(0))}
+  </div>`;
+  holder.dataset.rendered = '1';
 }
 
 function renderTimeline(sessions) {
