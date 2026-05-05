@@ -563,6 +563,21 @@ main { padding: 20px 26px; max-width: 1500px; margin: 0 auto; }
       <div class="kpi-value" id="kpi-ctx">—</div>
       <div class="kpi-sub" id="kpi-ctx-sub">—</div>
     </div>
+    <div class="kpi" id="kpi-rtk-card" title="Tokens économisés par RTK (Rust Token Killer) sur les commandes shell de la fenêtre. RTK filtre/résume la sortie des commandes (ls, git, grep, find, npm, etc.) avant qu'elle n'arrive dans le contexte Claude.">
+      <div class="kpi-label" data-i18n="kpiRtk">RTK gain</div>
+      <div class="kpi-value" id="kpi-rtk">—</div>
+      <div class="kpi-sub" id="kpi-rtk-sub">—</div>
+    </div>
+  </div>
+
+  <!-- Bandeau d'install RTK si non détecté -->
+  <div id="rtk-install-banner" style="display:none;background:linear-gradient(135deg,rgba(37,99,235,.06),rgba(124,58,237,.04));border:1px solid var(--accent-2);border-radius:var(--radius);padding:14px 18px;margin-bottom:14px;font-size:12px;color:var(--text-soft);align-items:center;gap:14px">
+    <div style="font-size:22px">⚡</div>
+    <div style="flex:1">
+      <strong style="color:var(--text);font-weight:700" data-i18n="rtkBannerTitle">RTK non détecté</strong>
+      <div data-i18n-html="rtkBannerBody" style="margin-top:4px"></div>
+    </div>
+    <a href="https://github.com/rtk-ai/rtk" target="_blank" rel="noopener" style="font-size:12px;font-weight:600;padding:7px 14px;background:var(--accent-2);color:#fff;border-radius:7px;text-decoration:none;white-space:nowrap" data-i18n="rtkBannerCta">Installer RTK</a>
   </div>
 
   <!-- Top projets -->
@@ -622,12 +637,13 @@ main { padding: 20px 26px; max-width: 1500px; margin: 0 auto; }
           <th class="num" title="Coût FORFAIT (Claude Code abo). Cache read EXCLU.&#10;Calcul : in×$in + out×$out + cw×$cw"><span data-i18n="forfait">Forfait</span> $</th>
           <th class="num" title="Coût API théorique (Anthropic API). Cache read INCLUS.&#10;Calcul : in×$in + out×$out + cw×$cw + cr×$cr"><span data-i18n="apiCol">API</span> $</th>
           <th class="num" data-i18n="deltaAvg" title="Écart par rapport au coût forfait moyen sur la fenêtre.&#10;Δ = (session − moyenne) / moyenne × 100">Δ moy</th>
+          <th class="num" data-i18n="rtkCol" title="Tokens économisés par RTK (Rust Token Killer) sur les commandes shell de la session.&#10;Match : project_path RTK == cwd session, dans la plage de timestamps de la session.&#10;— = RTK non détecté ou aucun match.">RTK</th>
           <th data-i18n="project" title="Projet (dossier de travail) — extrait du chemin .claude/projects/">Projet</th>
           <th data-i18n="titleCol" title="Premier prompt user de la session (ou label personnalisé si défini dans ~/.claude/session-labels.json)">Titre</th>
         </tr>
       </thead>
       <tbody id="sessions-body">
-        <tr><td colspan="15" style="padding:32px;text-align:center;color:var(--text-dim)" data-i18n="clickLoad">Cliquez sur "Charger" pour afficher les sessions</td></tr>
+        <tr><td colspan="16" style="padding:32px;text-align:center;color:var(--text-dim)" data-i18n="clickLoad">Cliquez sur "Charger" pour afficher les sessions</td></tr>
       </tbody>
     </table>
   </div>
@@ -681,7 +697,19 @@ const I18N = {
     forfait: 'Forfait', apiCol: 'API', total: 'Total',
     kpiForfait: 'Forfait', kpiApi: 'API théorique', kpiSessions: 'Sessions',
     kpiAvg: 'Coût / session', kpiCache: 'Cache hit', kpiSavings: 'Économie cache',
-    kpiSubs: 'Sous-agents', kpiCtx: 'Contexte max',
+    kpiSubs: 'Sous-agents', kpiCtx: 'Contexte max', kpiRtk: 'RTK gain',
+    rtkCol: 'RTK',
+    rtkBannerTitle: 'RTK non détecté',
+    rtkBannerBody: 'RTK (Rust Token Killer) filtre la sortie des commandes shell <strong>avant</strong> qu\'elle n\'atteigne le contexte Claude — économie typique <strong>90 %+</strong> sur <code>ls</code>, <code>git</code>, <code>grep</code>, <code>find</code>, <code>npm</code>, <code>docker</code>… Une fois installé, ce dashboard affichera le gain par session.',
+    rtkBannerCta: 'Installer RTK',
+    rtkNotInstalled: 'RTK non détecté sur cette machine',
+    rtkCellTooltip: (n, saved, pct, notInst) => notInst
+      ? `${notInst}\nInstalle RTK pour mesurer le gain : https://github.com/rtk-ai/rtk`
+      : (n === 0
+        ? 'Aucune commande RTK matchée pour cette session'
+        : `${n} commande${n>1?'s':''} RTK · ${saved} tokens économisés · ${pct}% en moyenne`),
+    rtkKpiSub: (n, pct) => `${n} cmd · ${pct}% moy.`,
+    rtkKpiNone: 'Non détecté',
     topProjects: 'Top projets',
     sessionsCostEvolution: 'Évolution du coût des sessions',
     days: 'Jours', hours: 'Heures',
@@ -980,7 +1008,19 @@ const I18N = {
     forfait: 'Plan', apiCol: 'API', total: 'Total',
     kpiForfait: 'Plan', kpiApi: 'Theoretical API', kpiSessions: 'Sessions',
     kpiAvg: 'Cost / session', kpiCache: 'Cache hit', kpiSavings: 'Cache savings',
-    kpiSubs: 'Sub-agents', kpiCtx: 'Max context',
+    kpiSubs: 'Sub-agents', kpiCtx: 'Max context', kpiRtk: 'RTK gain',
+    rtkCol: 'RTK',
+    rtkBannerTitle: 'RTK not detected',
+    rtkBannerBody: 'RTK (Rust Token Killer) filters shell-command output <strong>before</strong> it reaches Claude\'s context — typical <strong>90 %+</strong> savings on <code>ls</code>, <code>git</code>, <code>grep</code>, <code>find</code>, <code>npm</code>, <code>docker</code>… Once installed, this dashboard will display per-session gain.',
+    rtkBannerCta: 'Install RTK',
+    rtkNotInstalled: 'RTK not detected on this machine',
+    rtkCellTooltip: (n, saved, pct, notInst) => notInst
+      ? `${notInst}\nInstall RTK to measure gain: https://github.com/rtk-ai/rtk`
+      : (n === 0
+        ? 'No RTK command matched for this session'
+        : `${n} RTK command${n>1?'s':''} · ${saved} tokens saved · ${pct}% on average`),
+    rtkKpiSub: (n, pct) => `${n} cmd · ${pct}% avg`,
+    rtkKpiNone: 'Not detected',
     topProjects: 'Top projects',
     sessionsCostEvolution: 'Sessions cost evolution',
     days: 'Days', hours: 'Hours',
@@ -1889,6 +1929,27 @@ function renderKPIs(sessions) {
   $set('kpi-ctx-sub', peakSession
     ? `${peakSession.maxContext ? fmtTok(peakSession.maxContext) : '0'} / ${fmtTok(modelCtxMax(peakModel))} · moy. ${avgPct.toFixed(0)}%`
     : '—');
+
+  // KPI RTK : agrégat des saved_tokens des sessions de la fenêtre
+  const rtkAvail   = sessions.some(s => s.rtk?.available);
+  const rtkSaved   = sessions.reduce((a,x) => a + (x.rtk?.savedTokens || 0), 0);
+  const rtkCmds    = sessions.reduce((a,x) => a + (x.rtk?.commands || 0), 0);
+  const rtkPctSum  = sessions.reduce((a,x) => a + ((x.rtk?.avgPct || 0) * (x.rtk?.commands || 0)), 0);
+  const rtkAvgPct  = rtkCmds > 0 ? rtkPctSum / rtkCmds : 0;
+  const rtkValEl = $('kpi-rtk');
+  if (!rtkAvail) {
+    rtkValEl.textContent = '—';
+    rtkValEl.style.color = 'var(--text-dim)';
+    $set('kpi-rtk-sub', t('rtkKpiNone'));
+  } else if (rtkSaved === 0) {
+    rtkValEl.textContent = '0';
+    rtkValEl.style.color = 'var(--text-dim)';
+    $set('kpi-rtk-sub', `0 cmd`);
+  } else {
+    rtkValEl.textContent = `+${fmtTok(rtkSaved)}`;
+    rtkValEl.style.color = 'var(--green)';
+    $set('kpi-rtk-sub', t('rtkKpiSub')(rtkCmds, rtkAvgPct.toFixed(0)));
+  }
 }
 
 // ── Top projects chart ────────────────────────────────────
@@ -1979,7 +2040,7 @@ function renderSessions(sessions) {
 
   const body = $('sessions-body');
   if (!sessions.length) {
-    body.innerHTML = `<tr><td colspan="15" style="padding:32px;text-align:center;color:var(--text-dim)">${t('noSessionsInWindow')}</td></tr>`;
+    body.innerHTML = `<tr><td colspan="16" style="padding:32px;text-align:center;color:var(--text-dim)">${t('noSessionsInWindow')}</td></tr>`;
     $('sessions-summary').textContent = '';
     return;
   }
@@ -2065,7 +2126,7 @@ function renderSessions(sessions) {
       <div class="tt-body" data-tools-body="${i}"></div>` : '';
 
     const subRows = hasDetail ? `<tr class="detail-row" id="detail-${i}">
-      <td colspan="15"><div class="detail-inner">${subAgentsBlock}${topToolsBlock}</div></td>
+      <td colspan="16"><div class="detail-inner">${subAgentsBlock}${topToolsBlock}</div></td>
     </tr>` : '';
 
     return `<tr class="session-row" data-idx="${i}" title="${escHtml(s.title)}">
@@ -2102,11 +2163,17 @@ function renderSessions(sessions) {
       <td class="num tbl-plan" title="${ttPlan}">${fmtCost(sPlan)}</td>
       <td class="num tbl-cost" title="${ttApi}">${fmtCost(s.cost)}</td>
       <td class="num" title="${ttDelta}">${fmtDeltaHtml(pct)}</td>
+      <td class="num" title="${escHtml(t('rtkCellTooltip')(s.rtk?.commands || 0, (s.rtk?.savedTokens || 0).toLocaleString(), (s.rtk?.avgPct || 0).toFixed(0), s.rtk?.available === false ? t('rtkNotInstalled') : ''))}">
+        ${s.rtk?.savedTokens > 0
+          ? `<span style="color:var(--green);font-weight:600">+${fmtTok(s.rtk.savedTokens)}</span> <span style="color:var(--text-mute);font-size:10px">${(s.rtk.avgPct).toFixed(0)}%</span>`
+          : `<span style="color:var(--text-dim)">—</span>`}
+      </td>
       <td class="tbl-proj" title="${t('project')}: ${escHtml(s.project)}">${escHtml(s.project)}</td>
       <td class="tbl-title" title="${escHtml(s.title)}">${escHtml(s.title.slice(0,70))}</td>
     </tr>${subRows}`;
   }).join('');
 
+  const totalRtk = sessions.reduce((a, x) => a + (x.rtk?.savedTokens || 0), 0);
   const summaryRow = `<tr class="summary-row">
     <td></td>
     <td colspan="3" style="font-size:11px;color:var(--text-soft)">${t('total')} — ${sessions.length} ${t('sessions')}</td>
@@ -2118,7 +2185,9 @@ function renderSessions(sessions) {
     <td></td>
     <td class="num tbl-plan">${fmtCost(totalPlan)}</td>
     <td class="num tbl-cost">${fmtCost(totalFull)}</td>
-    <td colspan="3"></td>
+    <td></td>
+    <td class="num" style="color:var(--green);font-weight:700">${totalRtk > 0 ? '+' + fmtTok(totalRtk) : '—'}</td>
+    <td colspan="2"></td>
   </tr>`;
 
   body.innerHTML = rows + summaryRow;
@@ -2331,7 +2400,7 @@ async function loadSessionsTab() {
     sessionsData = project ? allData.filter(s => s.project === project) : allData;
     renderSessions(sessionsData);
   } catch (e) {
-    $('sessions-body').innerHTML = `<tr><td colspan="15" style="padding:24px;text-align:center;color:var(--accent)">${t('error')} : ${escHtml(String(e))}</td></tr>`;
+    $('sessions-body').innerHTML = `<tr><td colspan="16" style="padding:24px;text-align:center;color:var(--accent)">${t('error')} : ${escHtml(String(e))}</td></tr>`;
   } finally {
     $('sessions-loading').style.display = 'none';
   }
@@ -2342,8 +2411,17 @@ $('sess-days').addEventListener('change', loadSessionsTab);
 $('sess-project-select').addEventListener('change', loadSessionsTab);
 
 // ── Boot ─────────────────────────────────────────────────
+async function loadRtkStatus() {
+  try {
+    const r = await fetch('/api/rtk-status');
+    const s = await r.json();
+    const banner = $('rtk-install-banner');
+    if (banner) banner.style.display = s.installed ? 'none' : 'flex';
+  } catch {}
+}
+
 applyI18n();
-loadStats().then(() => { connectSSE(); loadLiveSessions(); }).catch(err => {
+loadStats().then(() => { connectSSE(); loadLiveSessions(); loadRtkStatus(); }).catch(err => {
   $('loading').innerHTML = `<div style="color:var(--accent)">${escHtml(err.message)}</div>`;
 });
 </script>
