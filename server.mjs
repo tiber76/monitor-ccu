@@ -72,37 +72,142 @@ function locateRtkDb() {
 }
 const RTK_DB_PATH = RtkDatabaseSync ? locateRtkDb() : null;
 
-// Pour chaque session (avec cwd + firstEventTs/lastEventTs), agrège les
-// commandes RTK matchées. Mute les sessions sans cwd ou sans match.
+// Matching 1:1 strict — chaque ligne RTK est attribuée à une seule session.
+// Stratégie : pour chaque tool_use Bash du JSONL (timestamp T, command C), on
+// cherche la row RTK où project_path == session.cwd, première sous-commande
+// identique (binaire de tête : grep/git/find/…), |ts - T| ≤ 10s, et on prend
+// la plus proche dans le temps. Chaque row est "claimée" une seule fois (gère
+// 2 sessions parallèles sur le même cwd).
+//
+// Note : on ne matche pas sur la commande EXACTE car RTK normalise (expand ~,
+// retire quotes, etc.) → en pratique <10% de match exact. Le binaire de tête
+// + cwd + proximité temporelle donne 1:1 fiable. Pour exact, voir le patch
+// upstream rtk-ai/rtk qui ajoute llm_session_id.
+const RTK_MATCH_WINDOW_MS = 10_000;
+function bashHead(cmd) {
+  if (!cmd) return '';
+  const s = cmd.trimStart();
+  // capture le 1er token alphanumérique (ignore env-vars en préfixe : FOO=bar cmd)
+  const m = s.match(/^(?:[A-Z_][A-Z0-9_]*=\S*\s+)*([^\s|;&<>(]+)/);
+  return m ? m[1] : '';
+}
+// Détection unique au boot : la colonne llm_session_id existe-t-elle ?
+// Sera ajoutée par le patch upstream rtk-ai/rtk en cours.
+function detectRtkSchema(db) {
+  try {
+    const cols = db.prepare("PRAGMA table_info(commands)").all();
+    return { hasSessionId: cols.some(c => c.name === 'llm_session_id') };
+  } catch { return { hasSessionId: false }; }
+}
+
 function attachRtkSavings(sessions) {
-  if (!RTK_DB_PATH || !sessions.length) {
-    for (const s of sessions) s.rtk = { savedTokens: 0, commands: 0, avgPct: 0, available: !!RTK_DB_PATH };
+  if (!sessions.length) return;
+  if (!RTK_DB_PATH) {
+    for (const s of sessions) s.rtk = { savedTokens: 0, commands: 0, avgPct: 0, available: false, matchMode: 'none' };
     return;
   }
+  for (const s of sessions) s.rtk = { savedTokens: 0, commands: 0, avgPct: 0, available: true, matchMode: 'heuristic', _pctSum: 0 };
+
   let db;
   try { db = new RtkDatabaseSync(RTK_DB_PATH, { readOnly: true }); } catch { return; }
   try {
-    const stmt = db.prepare(
-      'SELECT saved_tokens, savings_pct FROM commands ' +
-      'WHERE project_path = ? AND timestamp >= ? AND timestamp <= ?'
-    );
+    const { hasSessionId } = detectRtkSchema(db);
+
+    // Bornes globales pour fetch unique
+    const cwds = new Set();
+    let minMs = Infinity, maxMs = -Infinity;
     for (const s of sessions) {
-      const cwd = s.cwd;
-      if (!cwd) { s.rtk = { savedTokens: 0, commands: 0, avgPct: 0, available: true }; continue; }
-      const startMs = s.firstEventTs || (s.mtime - 24 * 3600e3);
-      const endMs   = (s.lastEventTs || s.mtime) + 60_000;
-      const startIso = new Date(startMs).toISOString();
-      const endIso   = new Date(endMs).toISOString();
-      let saved = 0, count = 0, pctSum = 0;
-      try {
-        const rows = stmt.all(cwd, startIso, endIso);
-        for (const r of rows) {
-          saved += r.saved_tokens || 0;
-          pctSum += r.savings_pct || 0;
-          count++;
-        }
-      } catch {}
-      s.rtk = { savedTokens: saved, commands: count, avgPct: count ? pctSum / count : 0, available: true };
+      if (s.cwd) cwds.add(s.cwd);
+      if (s.firstEventTs) minMs = Math.min(minMs, s.firstEventTs);
+      if (s.lastEventTs)  maxMs = Math.max(maxMs, s.lastEventTs);
+    }
+    if (!cwds.size || !isFinite(minMs)) return;
+    const startIso = new Date(minMs - RTK_MATCH_WINDOW_MS).toISOString();
+    const endIso   = new Date(maxMs + RTK_MATCH_WINDOW_MS).toISOString();
+
+    // Fetch unique : on demande llm_session_id si la colonne existe, sinon NULL
+    const sidCol = hasSessionId ? 'llm_session_id' : 'NULL AS llm_session_id';
+    const placeholders = Array.from(cwds, () => '?').join(',');
+    const rows = db.prepare(
+      `SELECT id, timestamp, original_cmd, project_path, saved_tokens, savings_pct, ${sidCol}
+       FROM commands
+       WHERE project_path IN (${placeholders})
+         AND timestamp >= ? AND timestamp <= ?
+       ORDER BY timestamp ASC`
+    ).all(...cwds, startIso, endIso);
+
+    // ── PASS 1 — Match direct par llm_session_id (post-patch RTK) ──────────
+    // Précis et déterministe. Active dès que le patch upstream landed.
+    const sessionsByUuid = new Map(sessions.map(s => [s.uuid, s]));
+    const claimed = new Set(); // ids de rows déjà attribuées
+    let directMatched = 0;
+    if (hasSessionId) {
+      for (const r of rows) {
+        if (!r.llm_session_id) continue; // legacy row, fallback heuristique
+        const s = sessionsByUuid.get(r.llm_session_id);
+        if (!s) continue;
+        claimed.add(r.id);
+        s.rtk.savedTokens += r.saved_tokens || 0;
+        s.rtk._pctSum     += r.savings_pct || 0;
+        s.rtk.commands++;
+        s.rtk.matchMode = 'session_id'; // promotion : exact
+        directMatched++;
+      }
+    }
+
+    // ── PASS 2 — Fallback heuristique sur les rows non claimées ───────────
+    // Index Map<cwd, Map<head, [{ms, row, claimed}]>> avec head = binaire
+    // de tête (grep/git/find/…). Match : même cwd + même head + ts proche
+    // dans ±10s + claim 1:1 par session (gère le parallélisme).
+    const idx = new Map();
+    for (const r of rows) {
+      if (claimed.has(r.id)) continue;
+      const head = bashHead(r.original_cmd);
+      let m1 = idx.get(r.project_path);
+      if (!m1) { m1 = new Map(); idx.set(r.project_path, m1); }
+      let arr = m1.get(head);
+      if (!arr) { arr = []; m1.set(head, arr); }
+      arr.push({ ms: new Date(r.timestamp).getTime(), row: r, claimed: false });
+    }
+
+    const todo = [];
+    for (const s of sessions) {
+      if (!s.cwd || !Array.isArray(s.bashInvocations)) continue;
+      for (const inv of s.bashInvocations) {
+        if (!inv.command || !inv.ts) continue;
+        todo.push({ s, ts: inv.ts, head: bashHead(inv.command) });
+      }
+    }
+    todo.sort((a, b) => a.ts - b.ts);
+
+    for (const item of todo) {
+      const m1 = idx.get(item.s.cwd);
+      if (!m1) continue;
+      const arr = m1.get(item.head);
+      if (!arr) continue;
+      let best = null;
+      for (const c of arr) {
+        if (c.claimed) continue;
+        const dt = Math.abs(c.ms - item.ts);
+        if (dt > RTK_MATCH_WINDOW_MS) continue;
+        if (!best || dt < best.dt) best = { c, dt };
+      }
+      if (best) {
+        best.c.claimed = true;
+        item.s.rtk.savedTokens += best.c.row.saved_tokens || 0;
+        item.s.rtk._pctSum    += best.c.row.savings_pct || 0;
+        item.s.rtk.commands++;
+        // matchMode reste 'heuristic' (ou 'session_id' si déjà promu)
+      }
+    }
+
+    for (const s of sessions) {
+      s.rtk.avgPct = s.rtk.commands > 0 ? s.rtk._pctSum / s.rtk.commands : 0;
+      delete s.rtk._pctSum;
+    }
+
+    if (hasSessionId && directMatched > 0) {
+      console.log(`  RTK: ${directMatched} rows matchées par llm_session_id (exact) + heuristique pour le reste.`);
     }
   } finally { try { db.close(); } catch {} }
 }
@@ -292,6 +397,7 @@ async function parseJsonlFull(filePath) {
   const usage = { in: 0, out: 0, cw: 0, cr: 0 };
   const byModel = {};
   const byTool = {}; // nom -> { count, in, out, cost, costPlan }
+  const bashInvocations = []; // { ts: ms, command: string brut } pour match RTK
   const seenIds = new Set();
   let cost = 0, costPlan = 0, costNoCache = 0;
   let maxContext = 0, sumContext = 0, callCount = 0;
@@ -329,6 +435,7 @@ async function parseJsonlFull(filePath) {
       const tools = extractToolUses(r.message);
       if (tools.length) {
         const n = tools.length;
+        const ts = r.timestamp ? new Date(r.timestamp).getTime() : null;
         for (const tu of tools) {
           const tn = tu.name;
           byTool[tn] ??= { count: 0, in: 0, out: 0, cw: 0, cr: 0, cost: 0, costPlan: 0, invocations: [] };
@@ -349,11 +456,15 @@ async function parseJsonlFull(filePath) {
               cost:       cFull / n,
             });
           }
+          // Capture brute pour matching RTK (commande exacte, pas de truncate)
+          if (tn === 'Bash' && ts && typeof tu.input?.command === 'string') {
+            bashInvocations.push({ ts, command: tu.input.command });
+          }
         }
       }
     }
   } catch {}
-  return { usage, byModel, byTool, cost, costPlan, costNoCache, maxContext, avgContext: callCount ? sumContext / callCount : 0, callCount };
+  return { usage, byModel, byTool, bashInvocations, cost, costPlan, costNoCache, maxContext, avgContext: callCount ? sumContext / callCount : 0, callCount };
 }
 
 async function scanSubagents(sessionDir) {
@@ -386,6 +497,7 @@ async function parseSessionFull(filePath, projEncoded) {
   const usage = { in: 0, out: 0, cw: 0, cr: 0 };
   const byModel = {};
   const byTool = {};
+  const bashInvocations = []; // { ts: ms, command: brut } pour matching RTK 1:1
   const seenIds = new Set();
   let cost = 0, costPlan = 0, costNoCache = 0;
   let firstPrompt = null, userTitle = null;
@@ -451,6 +563,7 @@ async function parseSessionFull(filePath, projEncoded) {
       const tools = extractToolUses(r.message);
       if (tools.length) {
         const n = tools.length;
+        const tsMs = r.timestamp ? new Date(r.timestamp).getTime() : null;
         for (const tu of tools) {
           const tn = tu.name;
           byTool[tn] ??= { count: 0, in: 0, out: 0, cw: 0, cr: 0, cost: 0, costPlan: 0, invocations: [] };
@@ -470,6 +583,9 @@ async function parseSessionFull(filePath, projEncoded) {
               costPlan:   cPlan / n,
               cost:       cFull / n,
             });
+          }
+          if (tn === 'Bash' && tsMs && typeof tu.input?.command === 'string') {
+            bashInvocations.push({ ts: tsMs, command: tu.input.command });
           }
         }
       }
@@ -499,6 +615,9 @@ async function parseSessionFull(filePath, projEncoded) {
           byTool[tn].invocations.push({ ...inv, sub: true }); // marqueur sous-agent
         }
       }
+    }
+    if (Array.isArray(sa.bashInvocations)) {
+      for (const inv of sa.bashInvocations) bashInvocations.push(inv);
     }
   }
 
@@ -536,6 +655,7 @@ async function parseSessionFull(filePath, projEncoded) {
     lastEventTs:  lastEventTs  || mtime,
     maxContext, avgContext: callCount ? sumContext / callCount : 0, callCount,
     total: usage.in + usage.out + usage.cw + usage.cr,
+    bashInvocations, // utilisé par attachRtkSavings — non sérialisé au client (cf. /api/sessions)
     topTools,
     subagents: subagents.map(sa => ({
       agentType:   sa.agentType,
@@ -579,6 +699,8 @@ async function loadSessions(days = 7, project = null) {
   await Promise.all(Array.from({ length: CONCURRENCY }, worker));
   results.sort((a, b) => b.mtime - a.mtime);
   attachRtkSavings(results);
+  // bashInvocations n'est pas sérialisé au client (cmd potentiellement sensibles)
+  for (const s of results) delete s.bashInvocations;
   cachedSessions = results; sessionsBuiltAt = Date.now(); sessionsBuiltKey = key;
   console.log(`  Sessions: ${results.length} chargées${RTK_DB_PATH ? ' (RTK ✓)' : ''}.`);
   return results;
@@ -598,6 +720,7 @@ async function loadLiveSessions(limit = 3) {
     try { results.push(await parseSessionFull(filePath, projEncoded)); } catch {}
   }
   attachRtkSavings(results);
+  for (const s of results) delete s.bashInvocations;
   liveSessionsCache = results; liveSessionsBuiltAt = Date.now();
   return results;
 }
