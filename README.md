@@ -24,7 +24,10 @@ Reads directly from `~/.claude/projects/` — no API key, no external service, n
 - Top projects mini chart (horizontal bars)
 - Day / hour evolution chart with consistent linear regression trend (empty buckets are filled, so the slope stays coherent across granularities)
 - Full sessions table: tokens, cost (plan & API), delta vs average, **context column with colored bar** (green < 40%, amber 40–80%, red > 80% — the thresholds Anthropic recommends `/compact` at)
-- Expand any row to see sub-agents breakdown (type, description, model, full token + cost detail)
+- Expand any row to see:
+  - **Sub-agents breakdown** (type, description, model, full token + cost detail)
+  - **Top 10 tools** with attributed cost (parent + sub-agents) — sortable by *plan $ / output / cache write* to see what's actually consuming
+  - **Per-tool invocation drill-down** — click any tool row to see the exact `Bash` commands, `Read` / `Edit` / `Write` file paths, `Grep` patterns, `WebFetch` URLs, `Agent` prompts… every invocation is tagged `SUB-AGENT` if it came from a Task call
 - Chronological cost timeline with cumulative total and progress bar
 - Filters: time window (today / 3d / 7d / 14d / 30d) and project (dropdown auto-populated, sorted by cost)
 - **Auto-loads** today's data when you first open the tab
@@ -67,6 +70,8 @@ Works on macOS, Linux and Windows. All paths use Node.js built-ins (`path.join`,
 The server scans `~/.claude/projects/**/*.jsonl` — the append-only session files written by Claude Code. It watches them for new lines (`fs.watchFile`, 800ms polling) and streams updates to the browser via Server-Sent Events. No database, no dependencies beyond Node.js built-ins.
 
 Pricing is synced with the [public Anthropic pricing](https://www.anthropic.com/pricing) (Opus / Sonnet / Haiku). Context window limits per model are also baked in (Opus 4.7 [1m] and Sonnet 4.6 = 1M; Opus 4.6/4.5, Haiku 4.5, Opus 4 = 200K).
+
+Claude Code logs the same assistant turn twice in the JSONL when it contains `tool_use` blocks — the parser deduplicates on `message.id` so each call is counted exactly once (this matters: without dedup, costs are inflated by ~50% on tool-heavy sessions).
 
 ## License
 
