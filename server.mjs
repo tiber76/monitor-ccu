@@ -902,6 +902,15 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+  if (url.pathname === '/api/refresh' && req.method === 'POST') {
+    cachedSessions = null; sessionsBuiltAt = 0; sessionsBuiltKey = '';
+    liveSessionsCache = null; liveSessionsBuiltAt = 0;
+    cachedStats = null; statsBuiltAt = 0;
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: true, ts: Date.now() }));
+    return;
+  }
+
   if (url.pathname === '/api/sessions') {
     const days    = Math.min(30, Math.max(1, parseInt(url.searchParams.get('days') || '7', 10)));
     const project = url.searchParams.get('project') || null;

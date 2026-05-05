@@ -53,7 +53,20 @@ header {
 .header-costs strong { color: var(--text); font-weight: 600; }
 .header-costs .label { color: var(--text-mute); font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; }
 
-.lang-toggle { margin-left: auto; display: flex; gap: 0; background: var(--bg-soft); border: 1px solid var(--line-soft); border-radius: 6px; padding: 2px; }
+.refresh-btn {
+  margin-left: auto; display: flex; align-items: center; gap: 6px;
+  background: var(--bg-soft); border: 1px solid var(--line-soft); border-radius: 6px;
+  padding: 4px 9px; font-size: 11px; font-weight: 600; color: var(--text-soft);
+  cursor: pointer; font-family: inherit; letter-spacing: 0.3px;
+  transition: all .12s;
+}
+.refresh-btn:hover { background: var(--bg-elev); border-color: var(--line); color: var(--text); }
+.refresh-btn:disabled { opacity: .55; cursor: progress; }
+.refresh-btn.spinning svg { animation: refresh-spin .8s linear infinite; transform-origin: 50% 50%; }
+@keyframes refresh-spin { to { transform: rotate(360deg); } }
+.refresh-btn.flash { background: rgba(5,150,105,.10); border-color: rgba(5,150,105,.35); color: var(--green); }
+
+.lang-toggle { display: flex; gap: 0; background: var(--bg-soft); border: 1px solid var(--line-soft); border-radius: 6px; padding: 2px; }
 .lang-btn { padding: 3px 9px; font-size: 10px; font-weight: 700; border: none; background: none; cursor: pointer; color: var(--text-mute); border-radius: 4px; font-family: inherit; letter-spacing: 0.5px; transition: all .12s; }
 .lang-btn:hover { color: var(--text); }
 .lang-btn.active { background: var(--text); color: #fff; }
@@ -433,6 +446,13 @@ main { padding: 20px 26px; max-width: 1500px; margin: 0 auto; }
     <span class="sep">/</span>
     <span><span class="label" data-i18n="headerApi">API</span> <strong id="header-cost-full">…</strong></span>
   </div>
+  <button class="refresh-btn" id="btn-refresh" data-i18n-attr="title:refreshTooltip" title="Vider le cache et recharger">
+    <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9"/>
+      <path d="M13.5 2v3.5H10"/>
+    </svg>
+    <span data-i18n="refresh">Rafraîchir</span>
+  </button>
   <div class="lang-toggle" title="Changer de langue / Switch language">
     <button class="lang-btn" data-lang="fr">FR</button>
     <button class="lang-btn" data-lang="en">EN</button>
@@ -679,6 +699,8 @@ main { padding: 20px 26px; max-width: 1500px; margin: 0 auto; }
 const I18N = {
   fr: {
     connecting: 'Connexion…', live: 'Live', reconnecting: 'Reconnexion…',
+    refresh: 'Rafraîchir', refreshTooltip: 'Vider le cache serveur et recharger toutes les données',
+    refreshing: 'Chargement…', refreshDone: 'À jour ✓',
     tabDashboard: 'Dashboard', tabSessions: 'Sessions', tabConseils: 'Conseils', tabCalculs: 'Calculs',
     headerForfait: 'Forfait', headerApi: 'API',
     today: 'Aujourd\'hui', badgeForfait: 'forfait', apiTheoretical: 'API théorique',
@@ -990,6 +1012,8 @@ const I18N = {
   },
   en: {
     connecting: 'Connecting…', live: 'Live', reconnecting: 'Reconnecting…',
+    refresh: 'Refresh', refreshTooltip: 'Clear server cache and reload all data',
+    refreshing: 'Loading…', refreshDone: 'Up to date ✓',
     tabDashboard: 'Dashboard', tabSessions: 'Sessions', tabConseils: 'Tips', tabCalculs: 'Formulas',
     headerForfait: 'Plan', headerApi: 'API',
     today: 'Today', badgeForfait: 'plan', apiTheoretical: 'Theoretical API',
@@ -2419,6 +2443,35 @@ async function loadRtkStatus() {
     if (banner) banner.style.display = s.installed ? 'none' : 'flex';
   } catch {}
 }
+
+// ── Refresh button : invalidate server cache + reload tout ──────────────
+const refreshBtn = $('btn-refresh');
+const refreshLabel = refreshBtn.querySelector('[data-i18n="refresh"]');
+const refreshDefaultText = () => t('refresh');
+refreshBtn.addEventListener('click', async () => {
+  if (refreshBtn.disabled) return;
+  refreshBtn.disabled = true;
+  refreshBtn.classList.add('spinning');
+  refreshBtn.classList.remove('flash');
+  refreshLabel.textContent = t('refreshing');
+  try {
+    await fetch('/api/refresh', { method: 'POST' });
+    const tasks = [loadStats(), loadLiveSessions(), loadRtkStatus()];
+    if (sessionsAutoLoaded) tasks.push(loadSessionsTab());
+    await Promise.allSettled(tasks);
+    refreshBtn.classList.add('flash');
+    refreshLabel.textContent = t('refreshDone');
+    setTimeout(() => {
+      refreshBtn.classList.remove('flash');
+      refreshLabel.textContent = refreshDefaultText();
+    }, 1500);
+  } catch (e) {
+    refreshLabel.textContent = refreshDefaultText();
+  } finally {
+    refreshBtn.classList.remove('spinning');
+    refreshBtn.disabled = false;
+  }
+});
 
 applyI18n();
 loadStats().then(() => { connectSSE(); loadLiveSessions(); loadRtkStatus(); }).catch(err => {
