@@ -115,6 +115,43 @@ main { padding: 20px 26px; max-width: 1500px; margin: 0 auto; }
 .calls-badge strong { color: var(--text-soft); font-weight: 600; }
 .chart-wrap { position: relative; height: 170px; }
 
+/* ── Rate limits card ────────────────────────────────── */
+.rate-limits-card { margin-bottom: 12px; }
+.rate-limits-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+.rl-item { display: flex; flex-direction: column; gap: 5px; }
+.rl-label { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-mute); }
+.rl-bar-track { height: 6px; background: var(--bg-soft); border-radius: 999px; overflow: hidden; border: 1px solid var(--line-soft); }
+.rl-bar-fill { height: 100%; border-radius: 999px; transition: width 0.4s ease; background: var(--accent); }
+.rl-bar-fill.warn  { background: #f59e0b; }
+.rl-bar-fill.crit  { background: #ef4444; }
+.rl-meta { display: flex; justify-content: space-between; font-size: 10px; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+.rl-pct { font-weight: 700; color: var(--text-soft); }
+
+/* ── Historique ──────────────────────────────────────── */
+.hist-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; gap: 12px; flex-wrap: wrap; }
+.hist-controls { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-soft); }
+.hist-controls select { font-size: 12px; padding: 3px 8px; border-radius: 6px; border: 1px solid var(--line-soft); background: var(--bg-card); color: var(--text); cursor: pointer; }
+.hist-legend { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-mute); }
+.hl-dot { width: 10px; height: 10px; border-radius: 3px; display: inline-block; flex-shrink: 0; }
+.hist-calendar { display: flex; gap: 5px; flex-wrap: wrap; padding: 4px 0 8px; }
+.hist-day {
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  min-width: 38px; flex: 1 0 38px; max-width: 60px;
+}
+.hist-day-label { font-size: 9px; color: var(--text-dim); text-align: center; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.hist-day-bar-wrap { width: 100%; height: 80px; display: flex; align-items: flex-end; background: var(--bg-soft); border-radius: 5px; overflow: hidden; border: 1px solid var(--line-soft); position: relative; }
+.hist-day-bar { width: 100%; border-radius: 4px 4px 0 0; transition: height .3s ease; }
+.hist-day-bar.ok   { background: var(--accent); }
+.hist-day-bar.warn { background: #f59e0b; }
+.hist-day-bar.crit { background: #ef4444; }
+.hist-day-pct { font-size: 10px; font-weight: 700; color: var(--text-soft); font-variant-numeric: tabular-nums; }
+.hist-day-empty { font-size: 9px; color: var(--text-dim); }
+/* Ligne de seuil 75% */
+.hist-day-bar-wrap::after { content: ''; position: absolute; left: 0; right: 0; bottom: 75%; height: 1px; background: rgba(245,158,11,.35); pointer-events: none; }
+/* Double bar pour opus/sonnet */
+.hist-day-bar-wrap.dual { gap: 2px; padding: 0 2px; }
+.hist-day-bar-wrap.dual .hist-day-bar { width: calc(50% - 1px); border-radius: 3px 3px 0 0; }
+
 /* ── Live sessions card (on dashboard) ───────────────── */
 .dual-live-grid { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 12px; align-items: start; margin-bottom: 12px; }
 @media (max-width: 1100px) { .dual-live-grid { grid-template-columns: 1fr; } }
@@ -466,6 +503,7 @@ main { padding: 20px 26px; max-width: 1500px; margin: 0 auto; }
 <nav class="tab-nav">
   <button class="tab-btn active" data-tab="dashboard" data-i18n="tabDashboard">Dashboard</button>
   <button class="tab-btn" data-tab="sessions" data-i18n="tabSessions">Sessions</button>
+  <button class="tab-btn" data-tab="historique" data-i18n="tabHistorique">Historique</button>
   <button class="tab-btn" data-tab="conseils" data-i18n="tabConseils">Conseils</button>
   <button class="tab-btn" data-tab="calculs" data-i18n="tabCalculs">Calculs</button>
 </nav>
@@ -498,6 +536,15 @@ main { padding: 20px 26px; max-width: 1500px; margin: 0 auto; }
     </div>
   </div>
 
+  <!-- Limites d'utilisation du forfait — données via Stop hook -->
+  <div class="card rate-limits-card" id="rate-limits-card" style="display:none">
+    <div class="card-title">
+      <span data-i18n="rateLimitsTitle">Utilisation du forfait</span>
+      <span class="badge" id="rate-limits-updated" style="font-size:9px;opacity:.6"></span>
+    </div>
+    <div class="rate-limits-grid" id="rate-limits-grid"></div>
+  </div>
+
   <div class="dual-live-grid">
     <div class="card live-sessions-card">
       <div class="card-title">
@@ -528,6 +575,67 @@ main { padding: 20px 26px; max-width: 1500px; margin: 0 auto; }
 </main>
 </div>
 
+<!-- ══ TAB HISTORIQUE ════════════════════════════════════ -->
+<div id="tab-historique" class="tab-content">
+<main>
+  <div class="hist-header">
+    <div class="hist-controls">
+      <label data-i18n="histWindow">Fenêtre</label>
+      <select id="hist-days">
+        <option value="7">7 jours</option>
+        <option value="14">14 jours</option>
+        <option value="30" selected>30 jours</option>
+        <option value="90">90 jours</option>
+      </select>
+    </div>
+    <div class="hist-legend">
+      <span class="hl-dot" style="background:var(--accent)"></span><span data-i18n="histLegend5h">Pic 5H (max du jour)</span>
+      <span class="hl-dot" style="background:#7c3aed;margin-left:14px"></span><span data-i18n="histLegend7d">Hebdo (fin de journée)</span>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:12px">
+    <div class="card-title" data-i18n="histTitle5h">Limite 5 heures — pic journalier</div>
+    <!-- Banner d'installation du hook — visible seulement si pas de données -->
+    <div id="hist-empty" style="display:none">
+      <div style="background:linear-gradient(135deg,rgba(37,99,235,.06),rgba(124,58,237,.04));border:1px solid var(--accent-2);border-radius:var(--radius);padding:18px 22px;margin-bottom:16px;font-size:12px;color:var(--text-soft)">
+        <div style="font-weight:700;color:var(--text);margin-bottom:8px;font-size:13px">⚙️ <span data-i18n="hookSetupTitle">Configuration requise — Stop hook</span></div>
+        <p style="margin:0 0 10px" data-i18n="hookSetupDesc">Pour collecter l'historique des limites d'utilisation, un hook shell doit être enregistré dans Claude Code. Il s'exécute localement après chaque réponse, <strong>sans aucun token consommé</strong>.</p>
+        <div style="margin-bottom:10px">
+          <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--text-mute);margin-bottom:4px" data-i18n="hookStep1">1 — Copier le script</div>
+          <pre style="margin:0;padding:8px 12px;background:var(--bg-soft);border:1px solid var(--line-soft);border-radius:6px;font-size:11px;overflow-x:auto">curl -o ~/.claude/scripts/monitor-rate-limits.sh \
+  https://raw.githubusercontent.com/tiber76/monitor-ccu/master/hooks/monitor-rate-limits.sh
+chmod +x ~/.claude/scripts/monitor-rate-limits.sh</pre>
+        </div>
+        <div>
+          <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--text-mute);margin-bottom:4px" data-i18n="hookStep2">2 — Ajouter dans ~/.claude/settings.json</div>
+          <pre style="margin:0;padding:8px 12px;background:var(--bg-soft);border:1px solid var(--line-soft);border-radius:6px;font-size:11px;overflow-x:auto">"hooks": {
+  "Stop": [{
+    "matcher": "",
+    "hooks": [{"type": "command",
+               "command": "~/.claude/scripts/monitor-rate-limits.sh",
+               "timeout": 3}]
+  }]
+}</pre>
+        </div>
+        <div style="margin-top:10px;font-size:11px;color:var(--text-dim)" data-i18n="hookSetupNote">Une fois configuré, les données apparaîtront dès le prochain message Claude. Le hook est aussi disponible sur GitHub dans le dossier <code>hooks/</code> du projet.</div>
+      </div>
+    </div>
+    <div class="hist-calendar" id="hist-cal-5h"></div>
+  </div>
+
+  <div class="card" style="margin-bottom:12px">
+    <div class="card-title" data-i18n="histTitle7d">Hebdomadaire — tous modèles (fin de journée)</div>
+    <div class="hist-calendar" id="hist-cal-7d"></div>
+  </div>
+
+  <div class="card" id="hist-card-models" style="display:none;margin-bottom:12px">
+    <div class="card-title" data-i18n="histTitleModels">Hebdomadaire — Opus vs Sonnet</div>
+    <div class="hist-calendar" id="hist-cal-models"></div>
+  </div>
+</main>
+</div>
+
 <!-- ══ TAB CALCULS ════════════════════════════════════════ -->
 <div id="tab-calculs" class="tab-content">
 <main>
@@ -543,13 +651,13 @@ main { padding: 20px 26px; max-width: 1500px; margin: 0 auto; }
 
   <!-- KPI strip -->
   <div class="kpi-strip" id="kpi-strip">
-    <div class="kpi" title="Total du coût forfait sur la fenêtre sélectionnée. Calcul : Σ (input + output + cache_write) × prix modèle. Cache read EXCLU car non facturé sur l'abonnement Claude Code.">
-      <div class="kpi-label" data-i18n="kpiForfait">Forfait</div>
+    <div class="kpi" title="Valeur consommée de ton abonnement Claude Code sur la fenêtre sélectionnée.&#10;Calcul : Σ (input + output + cache_write) × prix modèle.&#10;Cache read EXCLU — il est gratuit sur l'abonnement.&#10;Le % indique la part de ton forfait mensuel ($190) utilisée sur cette fenêtre.">
+      <div class="kpi-label" data-i18n="kpiForfait">Valeur plan</div>
       <div class="kpi-value" id="kpi-plan">—</div>
       <div class="kpi-sub" id="kpi-plan-sub">—</div>
     </div>
-    <div class="kpi" title="Coût API théorique = ce que coûterait la même utilisation via l'API Anthropic, cache read INCLUS. Calcul : Σ (input × $in + output × $out + cache_write × $cw + cache_read × $cr) / 1e6.">
-      <div class="kpi-label" data-i18n="kpiApi">API théorique</div>
+    <div class="kpi" title="Coût API brut = ce que coûterait la même utilisation via l'API Anthropic payante, cache read INCLUS au tarif plein.&#10;Calcul : Σ (input × $in + output × $out + cache_write × $cw + cache_read × $cr) / 1e6.&#10;Toujours supérieur à la valeur plan car le cache read est inclus ici.">
+      <div class="kpi-label" data-i18n="kpiApi">API brute</div>
       <div class="kpi-value" id="kpi-api">—</div>
       <div class="kpi-sub" id="kpi-api-sub">—</div>
     </div>
@@ -695,15 +803,30 @@ main { padding: 20px 26px; max-width: 1500px; margin: 0 auto; }
 </div>
 
 <script>
+// ── Abonnement ───────────────────────────────────────────
+const PLAN_PRICE_USD = 190; // Max X20 — modifier si tu changes de forfait
+
 // ── i18n ─────────────────────────────────────────────────
 const I18N = {
   fr: {
     connecting: 'Connexion…', live: 'Live', reconnecting: 'Reconnexion…',
     refresh: 'Rafraîchir', refreshTooltip: 'Vider le cache serveur et recharger toutes les données',
     refreshing: 'Chargement…', refreshDone: 'À jour ✓',
-    tabDashboard: 'Dashboard', tabSessions: 'Sessions', tabConseils: 'Conseils', tabCalculs: 'Calculs',
-    headerForfait: 'Forfait', headerApi: 'API',
-    today: 'Aujourd\'hui', badgeForfait: 'forfait', apiTheoretical: 'API théorique',
+    tabDashboard: 'Dashboard', tabSessions: 'Sessions', tabHistorique: 'Historique', tabConseils: 'Conseils', tabCalculs: 'Calculs',
+    histWindow: 'Fenêtre', histLegend5h: 'Pic 5H (max du jour)', histLegend7d: 'Hebdo (fin de journée)',
+    histTitle5h: 'Limite 5 heures — pic journalier', histTitle7d: 'Hebdomadaire — tous modèles (fin de journée)',
+    histTitleModels: 'Hebdomadaire — Opus vs Sonnet',
+    histEmpty: 'Aucune donnée — les lectures s\'accumuleront dès le prochain message Claude.',
+    hookSetupTitle: 'Configuration requise — Stop hook',
+    hookSetupDesc: 'Pour collecter l\'historique des limites d\'utilisation, un hook shell doit être enregistré dans Claude Code. Il s\'exécute localement après chaque réponse, <strong>sans aucun token consommé</strong>.',
+    hookStep1: '1 — Copier le script', hookStep2: '2 — Ajouter dans ~/.claude/settings.json',
+    hookSetupNote: 'Une fois configuré, les données apparaîtront dès le prochain message Claude. Le hook est aussi disponible sur GitHub dans le dossier <code>hooks/</code> du projet.',
+    rateLimitsTitle: 'Utilisation du forfait', rlNoData: 'En attente du prochain appel…',
+    rl5h: 'Limite 5 heures', rl7d: 'Hebdomadaire (tous modèles)',
+    rl7dOpus: 'Hebdomadaire · Opus', rl7dSonnet: 'Hebdomadaire · Sonnet',
+    rlResetsIn: 'Reset dans',
+    headerForfait: 'Plan (hors cache R)', headerApi: 'API brute',
+    today: 'Aujourd\'hui', badgeForfait: 'plan (hors cache R)', apiTheoretical: 'API brute (cache R inclus)',
     input: 'Input', output: 'Output', cacheR: 'Cache R', cacheW: 'Cache W',
     apiCalls: 'appels API',
     last7Days: '7 derniers jours', planNoCacheR: 'forfait $ (hors cache R)',
@@ -717,7 +840,7 @@ const I18N = {
     byModelLabel: 'Par modèle',
     callsCount: 'Appels',
     forfait: 'Forfait', apiCol: 'API', total: 'Total',
-    kpiForfait: 'Forfait', kpiApi: 'API théorique', kpiSessions: 'Sessions',
+    kpiForfait: 'Valeur plan', kpiApi: 'API brute', kpiSessions: 'Sessions',
     kpiAvg: 'Coût / session', kpiCache: 'Cache hit', kpiSavings: 'Économie cache',
     kpiSubs: 'Sous-agents', kpiCtx: 'Contexte max', kpiRtk: 'RTK gain',
     rtkCol: 'RTK',
@@ -1014,9 +1137,21 @@ const I18N = {
     connecting: 'Connecting…', live: 'Live', reconnecting: 'Reconnecting…',
     refresh: 'Refresh', refreshTooltip: 'Clear server cache and reload all data',
     refreshing: 'Loading…', refreshDone: 'Up to date ✓',
-    tabDashboard: 'Dashboard', tabSessions: 'Sessions', tabConseils: 'Tips', tabCalculs: 'Formulas',
-    headerForfait: 'Plan', headerApi: 'API',
-    today: 'Today', badgeForfait: 'plan', apiTheoretical: 'Theoretical API',
+    tabDashboard: 'Dashboard', tabSessions: 'Sessions', tabHistorique: 'History', tabConseils: 'Tips', tabCalculs: 'Formulas',
+    histWindow: 'Window', histLegend5h: '5H peak (daily max)', histLegend7d: 'Weekly (end of day)',
+    histTitle5h: '5-hour limit — daily peak', histTitle7d: 'Weekly — all models (end of day)',
+    histTitleModels: 'Weekly — Opus vs Sonnet',
+    histEmpty: 'No data yet — readings will accumulate from the next Claude message.',
+    hookSetupTitle: 'Setup required — Stop hook',
+    hookSetupDesc: 'To collect plan usage history, a shell hook must be registered in Claude Code. It runs locally after each response, <strong>with zero tokens consumed</strong>.',
+    hookStep1: '1 — Copy the script', hookStep2: '2 — Add to ~/.claude/settings.json',
+    hookSetupNote: 'Once configured, data will appear from the next Claude message. The hook is also available on GitHub in the <code>hooks/</code> folder of the project.',
+    rateLimitsTitle: 'Plan usage', rlNoData: 'Waiting for next API call…',
+    rl5h: '5-hour limit', rl7d: 'Weekly (all models)',
+    rl7dOpus: 'Weekly · Opus', rl7dSonnet: 'Weekly · Sonnet',
+    rlResetsIn: 'Resets in',
+    headerForfait: 'Plan (no cache R)', headerApi: 'Raw API',
+    today: 'Today', badgeForfait: 'plan (no cache R)', apiTheoretical: 'Raw API (cache R incl.)',
     input: 'Input', output: 'Output', cacheR: 'Cache R', cacheW: 'Cache W',
     apiCalls: 'API calls',
     last7Days: 'Last 7 days', planNoCacheR: 'plan $ (no cache R)',
@@ -1030,7 +1165,7 @@ const I18N = {
     byModelLabel: 'By model',
     callsCount: 'Calls',
     forfait: 'Plan', apiCol: 'API', total: 'Total',
-    kpiForfait: 'Plan', kpiApi: 'Theoretical API', kpiSessions: 'Sessions',
+    kpiForfait: 'Plan value', kpiApi: 'Raw API', kpiSessions: 'Sessions',
     kpiAvg: 'Cost / session', kpiCache: 'Cache hit', kpiSavings: 'Cache savings',
     kpiSubs: 'Sub-agents', kpiCtx: 'Max context', kpiRtk: 'RTK gain',
     rtkCol: 'RTK',
@@ -1432,11 +1567,62 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
     // Auto-load Sessions au premier passage
     if (btn.dataset.tab === 'sessions' && !sessionsAutoLoaded) {
       sessionsAutoLoaded = true;
-      $('sess-days').value = '1'; // Aujourd'hui par défaut
+      $('sess-days').value = '1';
       loadSessionsTab();
     }
+    // Charger l'historique à chaque ouverture du tab
+    if (btn.dataset.tab === 'historique') loadHistory();
   });
 });
+
+$('hist-days')?.addEventListener('change', loadHistory);
+
+// ── Rate limits ──────────────────────────────────────────
+function fmtResetsIn(tsSeconds) {
+  if (!tsSeconds) return '';
+  const diffS = Math.max(0, tsSeconds - Date.now() / 1000);
+  const h = Math.floor(diffS / 3600);
+  const m = Math.floor((diffS % 3600) / 60);
+  if (h > 0) return `${t('rlResetsIn')} ${h}h${m > 0 ? m + 'm' : ''}`;
+  return `${t('rlResetsIn')} ${m}m`;
+}
+
+function renderRateLimits(data) {
+  const card = $('rate-limits-card');
+  const grid = $('rate-limits-grid');
+  if (!data?.rate_limits) {
+    card.style.display = 'none';
+    return;
+  }
+  const rl = data.rate_limits;
+  const labelMap = { five_hour: t('rl5h'), seven_day: t('rl7d'), seven_day_opus: t('rl7dOpus'), seven_day_sonnet: t('rl7dSonnet') };
+  const items = Object.entries(rl).filter(([,v]) => v?.used_percentage != null);
+  if (!items.length) { card.style.display = 'none'; return; }
+
+  grid.innerHTML = items.map(([key, v]) => {
+    const pct  = Math.round(v.used_percentage);
+    const cls  = pct >= 90 ? 'crit' : pct >= 75 ? 'warn' : '';
+    const reset = fmtResetsIn(v.resets_at);
+    return `<div class="rl-item">
+      <div class="rl-label">${labelMap[key] || key}</div>
+      <div class="rl-bar-track"><div class="rl-bar-fill ${cls}" style="width:${Math.min(pct,100)}%"></div></div>
+      <div class="rl-meta"><span class="rl-pct">${pct}%</span><span>${reset}</span></div>
+    </div>`;
+  }).join('');
+
+  if (data.updated_at) {
+    const ageS = Math.round(Date.now() / 1000 - data.updated_at);
+    $('rate-limits-updated').textContent = `màj il y a ${ageS < 60 ? ageS + 's' : Math.round(ageS/60) + 'min'}`;
+  }
+  card.style.display = '';
+}
+
+async function fetchRateLimits() {
+  try {
+    const d = await fetch('/api/rate-limits').then(r => r.json());
+    renderRateLimits(d);
+  } catch {}
+}
 
 // ── Dashboard ────────────────────────────────────────────
 function renderToday() {
@@ -1742,6 +1928,7 @@ function connectSSE() {
     if (feedItems.length > 50) feedItems.pop();
     renderFeed(true);
     scheduleLiveRefresh();
+    fetchRateLimits();
   };
   es.onerror = () => {
     $('live-dot').classList.remove('connected'); $('live-label').textContent = t('reconnecting');
@@ -1918,8 +2105,9 @@ function renderKPIs(sessions) {
   const subCost  = sessions.reduce((s,x) => s + (x.subagents?.reduce((a,sa) => a + (sa.costPlan ?? sa.cost), 0) || 0), 0);
   const subPct   = totalPlan > 0 ? (subCost / totalPlan * 100) : 0;
 
+  const planPct = (totalPlan / PLAN_PRICE_USD * 100).toFixed(0);
   $set('kpi-plan', fmtCost(totalPlan));
-  $set('kpi-plan-sub', `${t('deltaVsApi')} : −${fmtCost(totalApi - totalPlan)}`);
+  $set('kpi-plan-sub', `${planPct}% de $${PLAN_PRICE_USD}/mois · cache R gratuit`);
   $set('kpi-api', fmtCost(totalApi));
   $set('kpi-api-sub', `≈ ${fmtCost(totalApi/sessions.length)} ${t('perSession')}`);
   $set('kpi-sessions', sessions.length);
@@ -2434,6 +2622,83 @@ $('btn-load-sessions').addEventListener('click', loadSessionsTab);
 $('sess-days').addEventListener('change', loadSessionsTab);
 $('sess-project-select').addEventListener('change', loadSessionsTab);
 
+// ── Historique rate limits ────────────────────────────────
+function histBarColor(pct) {
+  if (pct === null || pct === undefined) return '';
+  return pct >= 90 ? 'crit' : pct >= 75 ? 'warn' : 'ok';
+}
+
+function fmtDayLabel(isoDay) {
+  const d = new Date(isoDay + 'T12:00:00Z');
+  const dd = d.getUTCDate();
+  const mm = d.getUTCMonth() + 1;
+  const dow = ['dim','lun','mar','mer','jeu','ven','sam'][d.getUTCDay()];
+  return `${dow}<br>${dd}/${mm}`;
+}
+
+function renderHistCalendar(containerId, days, valueFn, colorOverrideFn) {
+  const el = $(containerId);
+  if (!days.length) { el.innerHTML = ''; return; }
+  el.innerHTML = days.map(d => {
+    const pct = valueFn(d);
+    const cls = colorOverrideFn ? colorOverrideFn(d) : histBarColor(pct);
+    const barH = pct != null ? Math.max(2, Math.round(pct * 0.8)) : 0;
+    const label = pct != null ? `<div class="hist-day-pct">${Math.round(pct)}%</div>` : `<div class="hist-day-empty">—</div>`;
+    return `<div class="hist-day" title="${d.day} · ${pct != null ? Math.round(pct) + '%' : 'n/a'} · ${d.count || 0} lecture(s)">
+      <div class="hist-day-bar-wrap">
+        <div class="hist-day-bar ${cls}" style="height:${barH}px"></div>
+      </div>
+      ${label}
+      <div class="hist-day-label">${fmtDayLabel(d.day)}</div>
+    </div>`;
+  }).join('');
+}
+
+function renderHistModels(days) {
+  const el = $('hist-cal-models');
+  const card = $('hist-card-models');
+  const hasModels = days.some(d => d.last7dOpus != null || d.last7dSonnet != null);
+  if (!hasModels) { card.style.display = 'none'; return; }
+  card.style.display = '';
+  el.innerHTML = days.map(d => {
+    const opus   = d.last7dOpus   ?? null;
+    const sonnet = d.last7dSonnet ?? null;
+    const clsO = histBarColor(opus);
+    const clsS = histBarColor(sonnet);
+    const barO = opus   != null ? Math.max(2, Math.round(opus   * 0.8)) : 0;
+    const barS = sonnet != null ? Math.max(2, Math.round(sonnet * 0.8)) : 0;
+    return `<div class="hist-day" title="${d.day} · Opus ${opus != null ? Math.round(opus)+'%' : 'n/a'} · Sonnet ${sonnet != null ? Math.round(sonnet)+'%' : 'n/a'}">
+      <div class="hist-day-bar-wrap dual">
+        <div class="hist-day-bar ${clsO}" style="height:${barO}px;background:#7c3aed"></div>
+        <div class="hist-day-bar ${clsS}" style="height:${barS}px;background:#2563eb"></div>
+      </div>
+      <div class="hist-day-pct" style="font-size:9px">${opus != null ? Math.round(opus)+'%' : '—'}</div>
+      <div class="hist-day-label">${fmtDayLabel(d.day)}</div>
+    </div>`;
+  }).join('');
+}
+
+async function loadHistory() {
+  const days = $('hist-days')?.value || '30';
+  try {
+    const data = await fetch(`/api/rate-limits-history?days=${days}`).then(r => r.json());
+    const empty = $('hist-empty');
+    if (!data.length) {
+      empty.style.display = '';
+      $('hist-cal-5h').innerHTML = '';
+      $('hist-cal-7d').innerHTML = '';
+      $('hist-card-models').style.display = 'none';
+      return;
+    }
+    empty.style.display = 'none';
+    renderHistCalendar('hist-cal-5h', data, d => d.peak5h);
+    renderHistCalendar('hist-cal-7d', data, d => d.last7d, d => histBarColor(d.last7d));
+    renderHistModels(data);
+  } catch {
+    $('hist-empty').style.display = '';
+  }
+}
+
 // ── Boot ─────────────────────────────────────────────────
 async function loadRtkStatus() {
   try {
@@ -2474,9 +2739,10 @@ refreshBtn.addEventListener('click', async () => {
 });
 
 applyI18n();
-loadStats().then(() => { connectSSE(); loadLiveSessions(); loadRtkStatus(); }).catch(err => {
+loadStats().then(() => { connectSSE(); loadLiveSessions(); loadRtkStatus(); fetchRateLimits(); }).catch(err => {
   $('loading').innerHTML = `<div style="color:var(--accent)">${escHtml(err.message)}</div>`;
 });
+setInterval(fetchRateLimits, 60_000);
 </script>
 </body>
 </html>
