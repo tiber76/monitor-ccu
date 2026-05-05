@@ -10,6 +10,16 @@ import { exec } from 'node:child_process';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 
+// node:sqlite (lecture history.db RTK) — feature expérimentale en Node 22, on
+// supprime juste le warning. La BDD RTK n'est lue qu'en lecture seule.
+const _origEmit = process.emit;
+process.emit = function (name, w, ...rest) {
+  if (name === 'warning' && w?.name === 'ExperimentalWarning' && /SQLite/.test(w.message || '')) return false;
+  return _origEmit.call(this, name, w, ...rest);
+};
+let RtkDatabaseSync = null;
+try { ({ DatabaseSync: RtkDatabaseSync } = await import('node:sqlite')); } catch {}
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECTS_ROOT = join(homedir(), '.claude', 'projects');
 const LABELS_PATH   = join(homedir(), '.claude', 'session-labels.json');
@@ -42,6 +52,59 @@ function calcCost(u, model) {
 
 function loadLabels() {
   try { return JSON.parse(readFileSync(LABELS_PATH, 'utf8')); } catch { return {}; }
+}
+
+// ── RTK (Rust Token Killer) — gain par session ────────────────────────────
+// RTK logge chaque commande filtrée dans une SQLite locale (table `commands`
+// avec project_path + timestamp + saved_tokens + savings_pct). On match par
+// cwd exact + plage de timestamps de la session.
+function locateRtkDb() {
+  const candidates = [
+    join(homedir(), 'Library', 'Application Support', 'rtk', 'history.db'),  // macOS
+    process.env.XDG_DATA_HOME ? join(process.env.XDG_DATA_HOME, 'rtk', 'history.db') : null,
+    join(homedir(), '.local', 'share', 'rtk', 'history.db'),                  // Linux par défaut
+    process.env.APPDATA ? join(process.env.APPDATA, 'rtk', 'history.db') : null, // Windows
+  ].filter(Boolean);
+  for (const p of candidates) {
+    try { if (statSync(p).isFile()) return p; } catch {}
+  }
+  return null;
+}
+const RTK_DB_PATH = RtkDatabaseSync ? locateRtkDb() : null;
+
+// Pour chaque session (avec cwd + firstEventTs/lastEventTs), agrège les
+// commandes RTK matchées. Mute les sessions sans cwd ou sans match.
+function attachRtkSavings(sessions) {
+  if (!RTK_DB_PATH || !sessions.length) {
+    for (const s of sessions) s.rtk = { savedTokens: 0, commands: 0, avgPct: 0, available: !!RTK_DB_PATH };
+    return;
+  }
+  let db;
+  try { db = new RtkDatabaseSync(RTK_DB_PATH, { readOnly: true }); } catch { return; }
+  try {
+    const stmt = db.prepare(
+      'SELECT saved_tokens, savings_pct FROM commands ' +
+      'WHERE project_path = ? AND timestamp >= ? AND timestamp <= ?'
+    );
+    for (const s of sessions) {
+      const cwd = s.cwd;
+      if (!cwd) { s.rtk = { savedTokens: 0, commands: 0, avgPct: 0, available: true }; continue; }
+      const startMs = s.firstEventTs || (s.mtime - 24 * 3600e3);
+      const endMs   = (s.lastEventTs || s.mtime) + 60_000;
+      const startIso = new Date(startMs).toISOString();
+      const endIso   = new Date(endMs).toISOString();
+      let saved = 0, count = 0, pctSum = 0;
+      try {
+        const rows = stmt.all(cwd, startIso, endIso);
+        for (const r of rows) {
+          saved += r.saved_tokens || 0;
+          pctSum += r.savings_pct || 0;
+          count++;
+        }
+      } catch {}
+      s.rtk = { savedTokens: saved, commands: count, avgPct: count ? pctSum / count : 0, available: true };
+    }
+  } finally { try { db.close(); } catch {} }
 }
 
 // Liste des tool_use présents dans une réponse assistant (nom + input).
@@ -326,8 +389,9 @@ async function parseSessionFull(filePath, projEncoded) {
   const seenIds = new Set();
   let cost = 0, costPlan = 0, costNoCache = 0;
   let firstPrompt = null, userTitle = null;
-  let lastEventTs = 0;
+  let lastEventTs = 0, firstEventTs = 0;
   let maxContext = 0, sumContext = 0, callCount = 0;
+  let cwd = null;
 
   try {
     const rl = createInterface({ input: createReadStream(filePath), crlfDelay: Infinity });
@@ -353,9 +417,11 @@ async function parseSessionFull(filePath, projEncoded) {
         if (firstPrompt) firstPrompt = firstPrompt.slice(0, 200);
       }
 
+      if (!cwd && typeof r.cwd === 'string' && r.cwd) cwd = r.cwd;
       if (r.timestamp) {
         const t = new Date(r.timestamp).getTime();
         if (t > lastEventTs) lastEventTs = t;
+        if (!firstEventTs || t < firstEventTs) firstEventTs = t;
       }
       const u = r.message?.usage;
       if (!u) continue;
@@ -463,10 +529,11 @@ async function parseSessionFull(filePath, projEncoded) {
   const title   = labels[uuid] ? `★ ${labels[uuid]}` : (userTitle || firstPrompt || '(sans prompt user)');
 
   return {
-    uuid, mtime, project,
+    uuid, mtime, project, cwd,
     title: title.slice(0, 200),
     parentModel, usage, cost, costPlan, costNoCache,
-    lastEventTs: lastEventTs || mtime,
+    firstEventTs: firstEventTs || mtime,
+    lastEventTs:  lastEventTs  || mtime,
     maxContext, avgContext: callCount ? sumContext / callCount : 0, callCount,
     total: usage.in + usage.out + usage.cw + usage.cr,
     topTools,
@@ -511,8 +578,9 @@ async function loadSessions(days = 7, project = null) {
   }
   await Promise.all(Array.from({ length: CONCURRENCY }, worker));
   results.sort((a, b) => b.mtime - a.mtime);
+  attachRtkSavings(results);
   cachedSessions = results; sessionsBuiltAt = Date.now(); sessionsBuiltKey = key;
-  console.log(`  Sessions: ${results.length} chargées.`);
+  console.log(`  Sessions: ${results.length} chargées${RTK_DB_PATH ? ' (RTK ✓)' : ''}.`);
   return results;
 }
 
@@ -529,6 +597,7 @@ async function loadLiveSessions(limit = 3) {
   for (const { filePath, projEncoded } of all) {
     try { results.push(await parseSessionFull(filePath, projEncoded)); } catch {}
   }
+  attachRtkSavings(results);
   liveSessionsCache = results; liveSessionsBuiltAt = Date.now();
   return results;
 }
@@ -685,6 +754,28 @@ const server = createServer(async (req, res) => {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(await loadLiveSessions(limit)));
     } catch (e) { res.writeHead(500); res.end(String(e)); }
+    return;
+  }
+
+  if (url.pathname === '/api/rtk-status') {
+    let summary = null;
+    if (RTK_DB_PATH && RtkDatabaseSync) {
+      try {
+        const db = new RtkDatabaseSync(RTK_DB_PATH, { readOnly: true });
+        try {
+          const r = db.prepare('SELECT COUNT(*) AS n, COALESCE(SUM(saved_tokens),0) AS saved, COALESCE(AVG(savings_pct),0) AS avgPct FROM commands').get();
+          summary = { commands: r.n, savedTokens: r.saved, avgPct: r.avgPct };
+        } finally { try { db.close(); } catch {} }
+      } catch {}
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      installed: !!RTK_DB_PATH,
+      dbPath:    RTK_DB_PATH || null,
+      platform:  process.platform,
+      installUrl: 'https://github.com/rtk-ai/rtk',
+      summary,
+    }));
     return;
   }
 
