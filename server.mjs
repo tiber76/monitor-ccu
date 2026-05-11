@@ -84,12 +84,77 @@ const RTK_DB_PATH = RtkDatabaseSync ? locateRtkDb() : null;
 // + cwd + proximité temporelle donne 1:1 fiable. Pour exact, voir le patch
 // upstream rtk-ai/rtk qui ajoute llm_session_id.
 const RTK_MATCH_WINDOW_MS = 10_000;
+
+// Aliases vers la forme canonique que RTK écrit dans `original_cmd` (cf. rtk
+// src/cmds/system/*.rs → `timer.track(&format!("grep -rn …"), …)` etc.).
+// Côté session, l'agent peut avoir invoqué `rg`, `head`, `tail`, … ; côté DB
+// rtk les a tous normalisés en `grep`/`cat`. Sans cette table, leurs buckets
+// `bashHead` ne se rejoignent jamais.
+const RTK_HEAD_ALIASES = {
+  rg: 'grep', egrep: 'grep', fgrep: 'grep',
+  head: 'cat', tail: 'cat', less: 'cat', more: 'cat', bat: 'cat',
+};
+
+// Wrappers : on saute jusqu'à la sous-commande réellement filtrée par rtk.
+// `npx jest …`, `pnpm exec jest …`, `yarn jest …` → head = `jest`.
+const WRAPPERS = new Set(['npx', 'bunx', 'pnpx', 'yarn', 'pnpm', 'npm', 'bun']);
+const WRAPPER_SUBCMD_SKIP = new Set([
+  'exec', 'run', 'run-script', 'workspace', '--workspace',
+  '--filter', '--silent', '-s', '-w',
+]);
+
 function bashHead(cmd) {
   if (!cmd) return '';
-  const s = cmd.trimStart();
+  let s = cmd.trimStart();
   // capture le 1er token alphanumérique (ignore env-vars en préfixe : FOO=bar cmd)
-  const m = s.match(/^(?:[A-Z_][A-Z0-9_]*=\S*\s+)*([^\s|;&<>(]+)/);
-  return m ? m[1] : '';
+  const re = /^(?:[A-Z_][A-Z0-9_]*=\S*\s+)*([^\s|;&<>(]+)/;
+  let m = s.match(re);
+  if (!m) return '';
+  let head = m[1];
+  // Les sessions jsonl logguent la commande POST-rewrite du hook rtk
+  // (`rtk grep ...`), alors que rtk DB stocke `original_cmd` pré-rewrite
+  // (`grep ...`). Pour aligner les buckets, on saute le préfixe `rtk` ou
+  // `rtk:variant`. Idem pour `rtk proxy <cmd>` (méta-commande explicite).
+  while (head === 'rtk' || head.startsWith('rtk:')) {
+    s = s.slice(m[0].length).trimStart();
+    m = s.match(re);
+    if (!m) return head;
+    // `rtk proxy X` → on veut X, pas "proxy"
+    if (head === 'rtk' && m[1] === 'proxy') {
+      s = s.slice(m[0].length).trimStart();
+      m = s.match(re);
+      if (!m) return 'proxy';
+    }
+    head = m[1];
+  }
+  // Wrappers (npx/pnpm/yarn/bun) : on continue à descendre tant qu'on est
+  // sur un mot-clé d'orchestration. `pnpm --filter foo exec jest` → `jest`.
+  while (WRAPPERS.has(head)) {
+    s = s.slice(m[0].length).trimStart();
+    // skip les args de wrapper (--filter foo, exec, run, etc.)
+    while (true) {
+      m = s.match(re);
+      if (!m) return head;
+      const t = m[1];
+      if (WRAPPER_SUBCMD_SKIP.has(t)) {
+        s = s.slice(m[0].length).trimStart();
+        // arg avec valeur ? on saute le token suivant aussi (--filter <name>)
+        if (t === '--filter' || t === '--workspace' || t === '-w') {
+          const m2 = s.match(re);
+          if (m2) s = s.slice(m2[0].length).trimStart();
+        }
+        continue;
+      }
+      // commence par '-' ? c'est un flag, on saute
+      if (t.startsWith('-')) {
+        s = s.slice(m[0].length).trimStart();
+        continue;
+      }
+      head = t;
+      break;
+    }
+  }
+  return RTK_HEAD_ALIASES[head] || head;
 }
 // Détection unique au boot : la colonne llm_session_id existe-t-elle ?
 // Sera ajoutée par le patch upstream rtk-ai/rtk en cours.
@@ -201,13 +266,56 @@ function attachRtkSavings(sessions) {
       }
     }
 
+    // ── PASS 3 — Fallback "fenêtre de session" pour rows orphelines ────────
+    // Certaines rows RTK n'ont ni llm_session_id ni Bash tool_use associé
+    // dans le transcript (skills, MCP, hook secondaire, sous-process qui
+    // shell-out hors tool_use). On les attribue à la session dont le cwd
+    // matche ET dont la fenêtre [firstEventTs, lastEventTs] contient le ts
+    // de la row (±60s de slack). En cas de plusieurs candidates (sessions
+    // parallèles dans la même cwd), on prend celle dont le centre temporel
+    // est le plus proche du ts de la row.
+    const WINDOW_SLACK_MS = 60_000;
+    const byCwd = new Map();
+    for (const s of sessions) {
+      if (!s.cwd || !s.firstEventTs || !s.lastEventTs) continue;
+      let arr = byCwd.get(s.cwd); if (!arr) { arr = []; byCwd.set(s.cwd, arr); }
+      arr.push(s);
+    }
+    let windowMatched = 0;
+    for (const [cwd, m1] of idx) {
+      const candidatesForCwd = byCwd.get(cwd);
+      if (!candidatesForCwd || !candidatesForCwd.length) continue;
+      for (const arr of m1.values()) {
+        for (const c of arr) {
+          if (c.claimed) continue;
+          const ts = c.ms;
+          let best = null, bestDt = Infinity;
+          for (const s of candidatesForCwd) {
+            if (ts < s.firstEventTs - WINDOW_SLACK_MS) continue;
+            if (ts > s.lastEventTs  + WINDOW_SLACK_MS) continue;
+            const center = (s.firstEventTs + s.lastEventTs) / 2;
+            const dt = Math.abs(center - ts);
+            if (dt < bestDt) { best = s; bestDt = dt; }
+          }
+          if (best) {
+            c.claimed = true;
+            best.rtk.savedTokens += c.row.saved_tokens || 0;
+            best.rtk._pctSum     += c.row.savings_pct || 0;
+            best.rtk.commands++;
+            if (best.rtk.matchMode === 'heuristic') best.rtk.matchMode = 'window';
+            windowMatched++;
+          }
+        }
+      }
+    }
+
     for (const s of sessions) {
       s.rtk.avgPct = s.rtk.commands > 0 ? s.rtk._pctSum / s.rtk.commands : 0;
       delete s.rtk._pctSum;
     }
 
-    if (hasSessionId && directMatched > 0) {
-      console.log(`  RTK: ${directMatched} rows matchées par llm_session_id (exact) + heuristique pour le reste.`);
+    if (directMatched > 0 || windowMatched > 0) {
+      console.log(`  RTK: pass1=${directMatched} (session_id), pass3=${windowMatched} (window-fallback), reste heuristique.`);
     }
   } finally { try { db.close(); } catch {} }
 }
