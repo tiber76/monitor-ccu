@@ -24,12 +24,15 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECTS_ROOT = join(homedir(), '.claude', 'projects');
 const LABELS_PATH   = join(homedir(), '.claude', 'session-labels.json');
 
-// Pricing $/M tokens — copié depuis ~/.claude/scripts/ccu-by-uuid.mjs
+// Pricing $/M tokens — source : https://claude.com/pricing (relevé 2026-09-18)
 const PRICING = {
+  'claude-fable-5-1':          { in: 10,   out: 50,  cw: 12.5,  cr: 0.25 }, // cache read = 2.5% de l'input (pas 10%)
+  'claude-opus-5':             { in: 5,    out: 25,  cw: 6.25,  cr: 0.5  },
   'claude-opus-4-7':           { in: 5,    out: 25,  cw: 6.25,  cr: 0.5  },
   'claude-opus-4-6':           { in: 5,    out: 25,  cw: 6.25,  cr: 0.5  },
   'claude-opus-4-5':           { in: 5,    out: 25,  cw: 6.25,  cr: 0.5  },
   'claude-opus-4':             { in: 15,   out: 75,  cw: 18.75, cr: 1.5  },
+  'claude-sonnet-5':           { in: 2,    out: 10,  cw: 2.5,   cr: 0.2  },
   'claude-sonnet-4-6':         { in: 3,    out: 15,  cw: 3.75,  cr: 0.3  },
   'claude-haiku-4-5-20251001': { in: 1,    out: 5,   cw: 1.25,  cr: 0.1  },
   'claude-haiku-4-5':          { in: 1,    out: 5,   cw: 1.25,  cr: 0.1  },
@@ -71,6 +74,93 @@ function locateRtkDb() {
   return null;
 }
 const RTK_DB_PATH = RtkDatabaseSync ? locateRtkDb() : null;
+
+// ── Plan usage (limite session 5h / hebdo) ────────────────────────────────
+// L'app desktop Claude persiste un échantillon (~toutes les 15 min) du % de
+// consommation de la fenêtre glissante 5h et du quota hebdomadaire dans ce
+// fichier. Aucune API locale n'expose ce chiffre : c'est la seule source.
+function locatePlanUsageFile() {
+  const candidates = [
+    join(homedir(), 'Library', 'Application Support', 'Claude', 'plan-usage-history.json'), // macOS
+    process.env.APPDATA ? join(process.env.APPDATA, 'Claude', 'plan-usage-history.json') : null, // Windows
+    join(homedir(), '.config', 'Claude', 'plan-usage-history.json'),                          // Linux
+  ].filter(Boolean);
+  for (const p of candidates) {
+    try { if (statSync(p).isFile()) return p; } catch {}
+  }
+  return null;
+}
+const PLAN_USAGE_PATH = locatePlanUsageFile();
+
+function loadPlanUsage() {
+  if (!PLAN_USAGE_PATH) return null;
+  try {
+    const { samples } = JSON.parse(readFileSync(PLAN_USAGE_PATH, 'utf8'));
+    if (!samples?.length) return null;
+    const last = samples[samples.length - 1];
+    return {
+      fiveHourPct: last.u?.fh ?? null,
+      weeklyPct:   last.u?.sd ?? null,
+      asOf:        last.t,
+    };
+  } catch { return null; }
+}
+
+// Historique complet des échantillons (%, triés par temps) — utilisé pour
+// estimer la part du quota hebdo consommée par une session donnée.
+function loadPlanUsageSamples() {
+  if (!PLAN_USAGE_PATH) return [];
+  try {
+    const { samples } = JSON.parse(readFileSync(PLAN_USAGE_PATH, 'utf8'));
+    return (samples || [])
+      .filter(s => s.u?.sd != null)
+      .map(s => ({ t: s.t, sd: s.u.sd }))
+      .sort((a, b) => a.t - b.t);
+  } catch { return []; }
+}
+
+// Estimation "quota hebdo" par session : le % hebdo (`sd`) est une fenêtre
+// GLISSANTE de 7 jours, pas un compteur remis à zéro un jour fixe — un delta
+// entre deux échantillons peut donc aussi refléter la sortie d'un vieux pic
+// d'usage de la fenêtre, pas seulement la conso de la session en cours. On
+// encadre la session par l'échantillon juste avant/après, on ignore les
+// deltas négatifs (signe qu'un tel décalage a eu lieu pendant la session —
+// non fiable), et on répartit le delta au prorata du coût forfait de toutes
+// les sessions actives dans la même fenêtre (plusieurs sessions tournent
+// souvent en parallèle sur ce compte).
+function attachWeeklyQuotaEstimate(sessions) {
+  if (!sessions.length) return;
+  const samples = loadPlanUsageSamples();
+  if (samples.length < 2) {
+    for (const s of sessions) s.weeklyQuota = { pct: null, available: false };
+    return;
+  }
+  const sampleAtOrBefore = (ts) => {
+    let best = null;
+    for (const sm of samples) { if (sm.t <= ts) best = sm; else break; }
+    return best;
+  };
+  const sampleAtOrAfter = (ts) => {
+    for (const sm of samples) { if (sm.t >= ts) return sm; }
+    return samples[samples.length - 1]; // session encore en cours : dernier connu
+  };
+
+  for (const s of sessions) {
+    const before = sampleAtOrBefore(s.firstEventTs);
+    const after  = sampleAtOrAfter(s.lastEventTs);
+    if (!before || !after || after.t <= before.t) { s.weeklyQuota = { pct: null, available: false }; continue; }
+    const deltaSd = after.sd - before.sd;
+    if (deltaSd < 0) { s.weeklyQuota = { pct: null, available: false, reliable: false }; continue; }
+    let totalCostInWindow = 0;
+    for (const other of sessions) {
+      if (other.lastEventTs >= before.t && other.firstEventTs <= after.t) {
+        totalCostInWindow += Math.max(other.costPlan, 0.0001);
+      }
+    }
+    const share = totalCostInWindow > 0 ? Math.max(s.costPlan, 0.0001) / totalCostInWindow : 0;
+    s.weeklyQuota = { pct: deltaSd * share, available: true, reliable: true };
+  }
+}
 
 // Matching 1:1 strict — chaque ligne RTK est attribuée à une seule session.
 // Stratégie : pour chaque tool_use Bash du JSONL (timestamp T, command C), on
@@ -763,6 +853,7 @@ async function parseSessionFull(filePath, projEncoded) {
     lastEventTs:  lastEventTs  || mtime,
     maxContext, avgContext: callCount ? sumContext / callCount : 0, callCount,
     total: usage.in + usage.out + usage.cw + usage.cr,
+    projEncoded,     // utilisé pour le filtre projet en cache — non sérialisé au client (cf. loadSessions)
     bashInvocations, // utilisé par attachRtkSavings — non sérialisé au client (cf. /api/sessions)
     topTools,
     subagents: subagents.map(sa => ({
@@ -782,36 +873,41 @@ async function parseSessionFull(filePath, projEncoded) {
 }
 
 // ── SESSIONS CACHE ────────────────────────────────────────────────────────
-let cachedSessions = null, sessionsBuiltAt = 0, sessionsBuiltKey = '';
+// Toujours parsé/mis en cache tous projets confondus (clé = days seul) : le
+// filtre projet est appliqué après coup, car l'estimation de quota hebdo a
+// besoin de voir les sessions parallèles des AUTRES projets pour répartir
+// correctement le delta (cf. attachWeeklyQuotaEstimate).
+let cachedSessions = null, sessionsBuiltAt = 0, sessionsBuiltDays = 0;
 
 async function loadSessions(days = 7, project = null) {
-  const key = `${days}:${project || ''}`;
-  if (cachedSessions && key === sessionsBuiltKey && Date.now() - sessionsBuiltAt < 60_000) {
-    return cachedSessions;
-  }
-  const sinceMs = Date.now() - days * 86400e3;
-  const all = scanSessionJsonl()
-    .filter(({ projEncoded }) => !project || projEncoded.toLowerCase().includes(project.toLowerCase()))
-    .filter(({ filePath }) => { try { return statSync(filePath).mtimeMs >= sinceMs; } catch { return false; } });
+  if (!cachedSessions || days !== sessionsBuiltDays || Date.now() - sessionsBuiltAt >= 60_000) {
+    const sinceMs = Date.now() - days * 86400e3;
+    const all = scanSessionJsonl()
+      .filter(({ filePath }) => { try { return statSync(filePath).mtimeMs >= sinceMs; } catch { return false; } });
 
-  console.log(`  Parsing ${all.length} sessions (${days}d)...`);
-  const results = [];
-  let idx = 0;
-  const CONCURRENCY = 8;
-  async function worker() {
-    while (idx < all.length) {
-      const { filePath, projEncoded } = all[idx++];
-      try { results.push(await parseSessionFull(filePath, projEncoded)); } catch {}
+    console.log(`  Parsing ${all.length} sessions (${days}d)...`);
+    const results = [];
+    let idx = 0;
+    const CONCURRENCY = 8;
+    async function worker() {
+      while (idx < all.length) {
+        const { filePath, projEncoded } = all[idx++];
+        try { results.push(await parseSessionFull(filePath, projEncoded)); } catch {}
+      }
     }
+    await Promise.all(Array.from({ length: CONCURRENCY }, worker));
+    results.sort((a, b) => b.mtime - a.mtime);
+    attachRtkSavings(results);
+    attachWeeklyQuotaEstimate(results);
+    // bashInvocations n'est pas sérialisé au client (cmd potentiellement sensibles)
+    for (const s of results) delete s.bashInvocations;
+    cachedSessions = results; sessionsBuiltAt = Date.now(); sessionsBuiltDays = days;
+    console.log(`  Sessions: ${results.length} chargées${RTK_DB_PATH ? ' (RTK ✓)' : ''}.`);
   }
-  await Promise.all(Array.from({ length: CONCURRENCY }, worker));
-  results.sort((a, b) => b.mtime - a.mtime);
-  attachRtkSavings(results);
-  // bashInvocations n'est pas sérialisé au client (cmd potentiellement sensibles)
-  for (const s of results) delete s.bashInvocations;
-  cachedSessions = results; sessionsBuiltAt = Date.now(); sessionsBuiltKey = key;
-  console.log(`  Sessions: ${results.length} chargées${RTK_DB_PATH ? ' (RTK ✓)' : ''}.`);
-  return results;
+  const filtered = project
+    ? cachedSessions.filter(s => s.projEncoded.toLowerCase().includes(project.toLowerCase()))
+    : cachedSessions;
+  return filtered.map(({ projEncoded, ...s }) => s); // champ interne, pas sérialisé au client
 }
 
 // ── LIVE SESSIONS : 3 plus récentes, avec sous-agents, sans cache long ────
@@ -1010,8 +1106,14 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+  if (url.pathname === '/api/plan-usage') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(loadPlanUsage()));
+    return;
+  }
+
   if (url.pathname === '/api/refresh' && req.method === 'POST') {
-    cachedSessions = null; sessionsBuiltAt = 0; sessionsBuiltKey = '';
+    cachedSessions = null; sessionsBuiltAt = 0; sessionsBuiltDays = 0;
     liveSessionsCache = null; liveSessionsBuiltAt = 0;
     cachedStats = null; statsBuiltAt = 0;
     res.writeHead(200, { 'Content-Type': 'application/json' });

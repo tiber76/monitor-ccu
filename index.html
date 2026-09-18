@@ -52,6 +52,11 @@ header {
 .header-costs { display: flex; align-items: center; gap: 14px; font-size: 12px; color: var(--text-soft); font-variant-numeric: tabular-nums; }
 .header-costs strong { color: var(--text); font-weight: 600; }
 .header-costs .label { color: var(--text-mute); font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; }
+.plan-usage { display: flex; align-items: center; gap: 14px; font-size: 12px; color: var(--text-soft); font-variant-numeric: tabular-nums; }
+.plan-usage .label { color: var(--text-mute); font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; }
+.plan-usage strong { font-weight: 700; color: var(--green); }
+.plan-usage strong.pu-gold { color: var(--gold); }
+.plan-usage strong.pu-red { color: var(--accent); }
 
 .refresh-btn {
   margin-left: auto; display: flex; align-items: center; gap: 6px;
@@ -123,6 +128,9 @@ main { padding: 20px 26px; max-width: 1500px; margin: 0 auto; }
 .live-session {
   background: var(--bg-soft); border: 1px solid var(--line-soft); border-radius: var(--radius-sm);
   padding: 11px 12px; position: relative; overflow: hidden; transition: all .15s;
+  contain: paint; transform: translateZ(0); /* isole le repaint : évite le glitch de bordure
+    fantôme que Chromium produit par intermittence quand ce bloc est remplacé en entier
+    toutes les ~1.5s (rafraîchi par SSE) */
 }
 .live-session:hover { border-color: var(--line); transform: translateY(-1px); box-shadow: var(--shadow-sm); }
 .live-session.active::before {
@@ -184,7 +192,10 @@ main { padding: 20px 26px; max-width: 1500px; margin: 0 auto; }
 .ls-detail { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line-soft); }
 .ls-detail-title { font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-mute); margin-bottom: 6px; display: flex; align-items: center; gap: 5px; }
 .ls-sub-count { background: var(--text); color: #fff; border-radius: 999px; padding: 1px 6px; font-size: 9px; }
-.ls-sub-table { width: 100%; border-collapse: collapse; font-size: 10px; }
+/* separate + border-spacing:0 (pas collapse) : évite le glitch de bordure mal
+   positionnée (traverse le texte) que Chromium produit par intermittence sur
+   des tables entièrement remplacées à haute fréquence (rafraîchi par SSE) */
+.ls-sub-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 10px; }
 .ls-sub-table thead th {
   background: var(--bg-soft); padding: 5px 8px; text-align: left;
   font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.4px;
@@ -446,6 +457,11 @@ main { padding: 20px 26px; max-width: 1500px; margin: 0 auto; }
     <span class="sep">/</span>
     <span><span class="label" data-i18n="headerApi">API</span> <strong id="header-cost-full">…</strong></span>
   </div>
+  <span class="sep">·</span>
+  <div class="plan-usage" id="plan-usage" style="display:none" title="">
+    <span class="pu-item"><span class="label" data-i18n="header5h">Session 5h</span> <strong id="pu-5h">—</strong></span>
+    <span class="pu-item" id="pu-week-wrap"><span class="label" data-i18n="headerWeek">Semaine</span> <strong id="pu-week">—</strong></span>
+  </div>
   <button class="refresh-btn" id="btn-refresh" data-i18n-attr="title:refreshTooltip" title="Vider le cache et recharger">
     <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
       <path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9"/>
@@ -658,12 +674,13 @@ main { padding: 20px 26px; max-width: 1500px; margin: 0 auto; }
           <th class="num" title="Coût API théorique (Anthropic API). Cache read INCLUS.&#10;Calcul : in×$in + out×$out + cw×$cw + cr×$cr"><span data-i18n="apiCol">API</span> $</th>
           <th class="num" data-i18n="deltaAvg" title="Écart par rapport au coût forfait moyen sur la fenêtre.&#10;Δ = (session − moyenne) / moyenne × 100">Δ moy</th>
           <th class="num" data-i18n="rtkCol" title="Tokens économisés par RTK (Rust Token Killer) sur les commandes shell de la session.&#10;Match : project_path RTK == cwd session, dans la plage de timestamps de la session.&#10;— = RTK non détecté ou aucun match.">RTK</th>
+          <th class="num" data-i18n="weeklyQuotaCol" title="Estimation de la part du quota hebdo Claude (`/usage`) consommée par cette session.&#10;Le % hebdo est une fenêtre GLISSANTE de 7 jours, pas un compteur remis à zéro : on encadre la session par l'échantillon avant/après et on répartit le delta au prorata du coût forfait entre sessions parallèles.&#10;⚠ = un vieux pic d'usage est sorti de la fenêtre pendant la session (non fiable). — = indisponible.">Quota hebdo</th>
           <th data-i18n="project" title="Projet (dossier de travail) — extrait du chemin .claude/projects/">Projet</th>
           <th data-i18n="titleCol" title="Premier prompt user de la session (ou label personnalisé si défini dans ~/.claude/session-labels.json)">Titre</th>
         </tr>
       </thead>
       <tbody id="sessions-body">
-        <tr><td colspan="16" style="padding:32px;text-align:center;color:var(--text-dim)" data-i18n="clickLoad">Cliquez sur "Charger" pour afficher les sessions</td></tr>
+        <tr><td colspan="17" style="padding:32px;text-align:center;color:var(--text-dim)" data-i18n="clickLoad">Cliquez sur "Charger" pour afficher les sessions</td></tr>
       </tbody>
     </table>
   </div>
@@ -706,6 +723,8 @@ const I18N = {
     refreshing: 'Chargement…', refreshDone: 'À jour ✓',
     tabDashboard: 'Dashboard', tabSessions: 'Sessions', tabConseils: 'Conseils', tabCalculs: 'Calculs',
     headerForfait: 'Plan (hors cache R)', headerApi: 'API brute',
+    header5h: 'Session 5h', headerWeek: 'Semaine',
+    planUsageTooltip: (t) => `Consommation du forfait Claude, mesurée par l'app desktop Claude (relevé le plus récent : ${t}).`,
     today: 'Aujourd\'hui', badgeForfait: 'plan (hors cache R)', apiTheoretical: 'API brute (cache R inclus)',
     input: 'Input', output: 'Output', cacheR: 'Cache R', cacheW: 'Cache W',
     apiCalls: 'appels API',
@@ -724,6 +743,10 @@ const I18N = {
     kpiAvg: 'Coût / session', kpiCache: 'Cache hit', kpiSavings: 'Économie cache',
     kpiSubs: 'Sous-agents', kpiCtx: 'Contexte max', kpiRtk: 'RTK gain',
     rtkCol: 'RTK',
+    weeklyQuotaCol: 'Quota hebdo',
+    weeklyQuotaTooltip: (pct) => `Estimation de la part du quota hebdo (fenêtre glissante 7 jours, cf. /usage) consommée par cette session : ≈ ${pct}%.\nMéthode : delta du % hebdo entre l'échantillon plan-usage juste avant et juste après la session, réparti au prorata du coût forfait entre les sessions actives sur la même fenêtre.\nApproximatif — pas une valeur exacte de l'API Anthropic.`,
+    weeklyQuotaUnavailable: 'Estimation indisponible : plan-usage-history.json absent, ou aucun échantillon ne couvre cette session.',
+    weeklyQuotaUnreliable: 'Estimation non fiable : un vieux pic d\'usage est sorti de la fenêtre glissante de 7 jours pendant cette session.',
     rtkBannerTitle: 'RTK non détecté',
     rtkBannerBody: 'RTK (Rust Token Killer) filtre la sortie des commandes shell <strong>avant</strong> qu\'elle n\'atteigne le contexte Claude — économie typique <strong>90 %+</strong> sur <code>ls</code>, <code>git</code>, <code>grep</code>, <code>find</code>, <code>npm</code>, <code>docker</code>… Une fois installé, ce dashboard affichera le gain par session.',
     rtkBannerCta: 'Installer RTK',
@@ -1019,6 +1042,8 @@ const I18N = {
     refreshing: 'Loading…', refreshDone: 'Up to date ✓',
     tabDashboard: 'Dashboard', tabSessions: 'Sessions', tabConseils: 'Tips', tabCalculs: 'Formulas',
     headerForfait: 'Plan (no cache R)', headerApi: 'Raw API',
+    header5h: '5h session', headerWeek: 'Weekly',
+    planUsageTooltip: (t) => `Claude plan usage, as measured by the Claude desktop app (latest sample: ${t}).`,
     today: 'Today', badgeForfait: 'plan (no cache R)', apiTheoretical: 'Raw API (cache R incl.)',
     input: 'Input', output: 'Output', cacheR: 'Cache R', cacheW: 'Cache W',
     apiCalls: 'API calls',
@@ -1037,6 +1062,10 @@ const I18N = {
     kpiAvg: 'Cost / session', kpiCache: 'Cache hit', kpiSavings: 'Cache savings',
     kpiSubs: 'Sub-agents', kpiCtx: 'Max context', kpiRtk: 'RTK gain',
     rtkCol: 'RTK',
+    weeklyQuotaCol: 'Weekly quota',
+    weeklyQuotaTooltip: (pct) => `Estimated share of the weekly quota (rolling 7-day window, see /usage) used by this session: ≈ ${pct}%.\nMethod: delta of the weekly % between the plan-usage sample just before and just after the session, split proportionally by plan cost across sessions active in that same window.\nApproximate — not an exact Anthropic API value.`,
+    weeklyQuotaUnavailable: 'Estimate unavailable: plan-usage-history.json missing, or no sample covers this session.',
+    weeklyQuotaUnreliable: 'Unreliable estimate: an old usage spike aged out of the rolling 7-day window during this session.',
     rtkBannerTitle: 'RTK not detected',
     rtkBannerBody: 'RTK (Rust Token Killer) filters shell-command output <strong>before</strong> it reaches Claude\'s context — typical <strong>90 %+</strong> savings on <code>ls</code>, <code>git</code>, <code>grep</code>, <code>find</code>, <code>npm</code>, <code>docker</code>… Once installed, this dashboard will display per-session gain.',
     rtkBannerCta: 'Install RTK',
@@ -1389,12 +1418,18 @@ const escHtml = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').re
 const $ = id => document.getElementById(id);
 
 const MODEL_COLORS = {
+  'claude-fable-5-1':'#b45309',
+  'claude-opus-5':'#7c3aed',
   'claude-opus-4-7':'#7c3aed','claude-opus-4-6':'#7c3aed','claude-opus-4-5':'#7c3aed','claude-opus-4':'#9d4edd',
+  'claude-sonnet-5':'#2563eb',
   'claude-sonnet-4-6':'#2563eb',
   'claude-haiku-4-5-20251001':'#059669','claude-haiku-4-5':'#059669',
 };
 const MODEL_SHORT = {
+  'claude-fable-5-1':'Fable 5.1',
+  'claude-opus-5':'Opus 5',
   'claude-opus-4-7':'Opus 4.7','claude-opus-4-6':'Opus 4.6','claude-opus-4-5':'Opus 4.5','claude-opus-4':'Opus 4.0',
+  'claude-sonnet-5':'Sonnet 5',
   'claude-sonnet-4-6':'Sonnet 4.6',
   'claude-haiku-4-5-20251001':'Haiku 4.5','claude-haiku-4-5':'Haiku 4.5',
 };
@@ -2037,10 +2072,13 @@ function renderTopProjects(sessions) {
 // ── Context window helpers ────────────────────────────────
 // Limite de contexte par modèle (tokens). Source : doc Anthropic.
 const MODEL_CTX = {
+  'claude-fable-5-1':          1_000_000, // 1M
+  'claude-opus-5':             1_000_000, // 1M
   'claude-opus-4-7':           1_000_000, // 1M
   'claude-opus-4-6':           200_000,
   'claude-opus-4-5':           200_000,
   'claude-opus-4':             200_000,
+  'claude-sonnet-5':           1_000_000, // 1M
   'claude-sonnet-4-6':         1_000_000,
   'claude-haiku-4-5':          200_000,
   'claude-haiku-4-5-20251001': 200_000,
@@ -2068,7 +2106,7 @@ function renderSessions(sessions) {
 
   const body = $('sessions-body');
   if (!sessions.length) {
-    body.innerHTML = `<tr><td colspan="16" style="padding:32px;text-align:center;color:var(--text-dim)">${t('noSessionsInWindow')}</td></tr>`;
+    body.innerHTML = `<tr><td colspan="17" style="padding:32px;text-align:center;color:var(--text-dim)">${t('noSessionsInWindow')}</td></tr>`;
     $('sessions-summary').textContent = '';
     return;
   }
@@ -2154,7 +2192,7 @@ function renderSessions(sessions) {
       <div class="tt-body" data-tools-body="${i}"></div>` : '';
 
     const subRows = hasDetail ? `<tr class="detail-row" id="detail-${i}">
-      <td colspan="16"><div class="detail-inner">${subAgentsBlock}${topToolsBlock}</div></td>
+      <td colspan="17"><div class="detail-inner">${subAgentsBlock}${topToolsBlock}</div></td>
     </tr>` : '';
 
     return `<tr class="session-row" data-idx="${i}" title="${escHtml(s.title)}">
@@ -2196,6 +2234,15 @@ function renderSessions(sessions) {
           ? `<span style="color:var(--green);font-weight:600">+${fmtTok(s.rtk.savedTokens)}</span> <span style="color:var(--text-mute);font-size:10px">${(s.rtk.avgPct).toFixed(0)}%</span>`
           : `<span style="color:var(--text-dim)">—</span>`}
       </td>
+      <td class="num" title="${escHtml(
+        s.weeklyQuota?.available ? t('weeklyQuotaTooltip')(s.weeklyQuota.pct < 0.01 ? '<0.01' : s.weeklyQuota.pct.toFixed(2))
+        : s.weeklyQuota?.reliable === false ? t('weeklyQuotaUnreliable')
+        : t('weeklyQuotaUnavailable')
+      )}">
+        ${s.weeklyQuota?.available
+          ? `<span style="color:${s.weeklyQuota.pct >= 5 ? 'var(--gold)' : 'var(--text-soft)'}">≈ ${s.weeklyQuota.pct < 0.01 ? '<0.01' : s.weeklyQuota.pct.toFixed(2)}%</span>`
+          : `<span style="color:var(--text-dim)">${s.weeklyQuota?.reliable === false ? '⚠' : '—'}</span>`}
+      </td>
       <td class="tbl-proj" title="${t('project')}: ${escHtml(s.project)}">${escHtml(s.project)}</td>
       <td class="tbl-title" title="${escHtml(s.title)}">${escHtml(s.title.slice(0,70))}</td>
     </tr>${subRows}`;
@@ -2215,6 +2262,7 @@ function renderSessions(sessions) {
     <td class="num tbl-cost">${fmtCost(totalFull)}</td>
     <td></td>
     <td class="num" style="color:var(--green);font-weight:700">${totalRtk > 0 ? '+' + fmtTok(totalRtk) : '—'}</td>
+    <td></td>
     <td colspan="2"></td>
   </tr>`;
 
@@ -2428,7 +2476,7 @@ async function loadSessionsTab() {
     sessionsData = project ? allData.filter(s => s.project === project) : allData;
     renderSessions(sessionsData);
   } catch (e) {
-    $('sessions-body').innerHTML = `<tr><td colspan="16" style="padding:24px;text-align:center;color:var(--accent)">${t('error')} : ${escHtml(String(e))}</td></tr>`;
+    $('sessions-body').innerHTML = `<tr><td colspan="17" style="padding:24px;text-align:center;color:var(--accent)">${t('error')} : ${escHtml(String(e))}</td></tr>`;
   } finally {
     $('sessions-loading').style.display = 'none';
   }
@@ -2437,6 +2485,35 @@ async function loadSessionsTab() {
 $('btn-load-sessions').addEventListener('click', loadSessionsTab);
 $('sess-days').addEventListener('change', loadSessionsTab);
 $('sess-project-select').addEventListener('change', loadSessionsTab);
+
+// ── Plan usage (limite session 5h / hebdo) ────────────────
+function puClass(pct) {
+  if (pct >= 80) return 'pu-red';
+  if (pct >= 40) return 'pu-gold';
+  return '';
+}
+async function loadPlanUsage() {
+  const wrap = $('plan-usage');
+  try {
+    const r = await fetch('/api/plan-usage');
+    const d = await r.json();
+    if (!d || d.fiveHourPct == null) { wrap.style.display = 'none'; return; }
+    wrap.style.display = 'flex';
+    const fh = $('pu-5h');
+    fh.textContent = `${d.fiveHourPct}%`;
+    fh.className = puClass(d.fiveHourPct);
+    const weekWrap = $('pu-week-wrap');
+    if (d.weeklyPct == null) {
+      weekWrap.style.display = 'none';
+    } else {
+      weekWrap.style.display = '';
+      const wk = $('pu-week');
+      wk.textContent = `${d.weeklyPct}%`;
+      wk.className = puClass(d.weeklyPct);
+    }
+    wrap.title = t('planUsageTooltip')(new Date(d.asOf).toLocaleTimeString());
+  } catch { wrap.style.display = 'none'; }
+}
 
 // ── Boot ─────────────────────────────────────────────────
 async function loadRtkStatus() {
@@ -2460,7 +2537,7 @@ refreshBtn.addEventListener('click', async () => {
   refreshLabel.textContent = t('refreshing');
   try {
     await fetch('/api/refresh', { method: 'POST' });
-    const tasks = [loadStats(), loadLiveSessions(), loadRtkStatus()];
+    const tasks = [loadStats(), loadLiveSessions(), loadRtkStatus(), loadPlanUsage()];
     if (sessionsAutoLoaded) tasks.push(loadSessionsTab());
     await Promise.allSettled(tasks);
     refreshBtn.classList.add('flash');
@@ -2478,9 +2555,10 @@ refreshBtn.addEventListener('click', async () => {
 });
 
 applyI18n();
-loadStats().then(() => { connectSSE(); loadLiveSessions(); loadRtkStatus(); }).catch(err => {
+loadStats().then(() => { connectSSE(); loadLiveSessions(); loadRtkStatus(); loadPlanUsage(); }).catch(err => {
   $('loading').innerHTML = `<div style="color:var(--accent)">${escHtml(err.message)}</div>`;
 });
+setInterval(loadPlanUsage, 5 * 60_000); // l'app desktop n'échantillonne que ~toutes les 15 min
 </script>
 </body>
 </html>
