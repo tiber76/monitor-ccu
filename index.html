@@ -5,9 +5,19 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Claude Code Usage Monitor</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><defs><linearGradient id='g' x1='0' y1='0' x2='64' y2='64' gradientUnits='userSpaceOnUse'><stop offset='0%25' stop-color='%23cd5c2c'/><stop offset='100%25' stop-color='%23a02d1c'/></linearGradient></defs><rect width='64' height='64' rx='14' fill='url(%23g)'/><path d='M44 22 A 14 14 0 1 0 44 42' stroke='%23fbfaf6' stroke-width='6' stroke-linecap='round' fill='none'/><path d='M16 32 L24 32 L28 24 L34 40 L38 28 L42 34 L48 32' stroke='%23fbfaf6' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round' fill='none'/><circle cx='48' cy='32' r='2.6' fill='%23fbfaf6'/></svg>">
+<script>
+// Applique le thème AVANT le premier paint pour éviter le flash clair/sombre au chargement.
+(function () {
+  try {
+    var t = localStorage.getItem('ccu-theme');
+    if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t;
+  } catch (e) {}
+})();
+</script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
 <style>
 :root {
+  color-scheme: light;
   --bg:        #f7f5ef;
   --bg-elev:   #ffffff;
   --bg-soft:   #fbfaf6;
@@ -20,14 +30,60 @@
   --accent:    #cd0000;
   --accent-2:  #2563eb;
   --opus:      #7c3aed;
-  --sonnet:    #2563eb;
+  --sonnet:    #0369a1;
   --haiku:     #059669;
   --gold:      #d97706;
   --green:     #059669;
+  --ink-solid: #1a1612; /* bouton/badge "plein" toujours sombre, ne bascule pas avec le thème */
+  --summary-bg: #efe9dc;
+  --flash:     rgba(254,249,231,1);
+  --header-bg: rgba(255,255,255,.85);
   --shadow-sm: 0 1px 2px rgba(31,24,12,.04), 0 1px 1px rgba(31,24,12,.03);
   --shadow-md: 0 4px 12px rgba(31,24,12,.05), 0 1px 2px rgba(31,24,12,.04);
   --radius:    12px;
   --radius-sm: 8px;
+}
+
+/* ── Thème sombre ──────────────────────────────────────
+   Couleurs de marque (accent/opus/sonnet/haiku/gold/green) inchangées :
+   validées CVD-safe + contraste sur les deux surfaces (script dataviz),
+   donc pas besoin de variante par thème. Seuls les neutres basculent.
+   Le bloc media (préférence OS) est prioritaire tant que l'utilisateur n'a
+   pas explicitement choisi un thème via le bouton (data-theme le bat) — cf.
+   https://developer.mozilla.org/… pattern standard clair/sombre. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg:        #14110d;
+    --bg-elev:   #1e1a15;
+    --bg-soft:   #241f19;
+    --line:      #3a332a;
+    --line-soft: #2a251e;
+    --text:      #f2ede4;
+    --text-soft: #c4bcae;
+    --text-dim:  #55503f;
+    --summary-bg: #2f281f;
+    --flash:     rgba(180,131,45,.35);
+    --header-bg: rgba(20,17,13,.85);
+    --shadow-sm: 0 1px 2px rgba(0,0,0,.35), 0 1px 1px rgba(0,0,0,.25);
+    --shadow-md: 0 4px 14px rgba(0,0,0,.45), 0 1px 3px rgba(0,0,0,.3);
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg:        #14110d;
+  --bg-elev:   #1e1a15;
+  --bg-soft:   #241f19;
+  --line:      #3a332a;
+  --line-soft: #2a251e;
+  --text:      #f2ede4;
+  --text-soft: #c4bcae;
+  --text-dim:  #55503f;
+  --summary-bg: #2f281f;
+  --flash:     rgba(180,131,45,.35);
+  --header-bg: rgba(20,17,13,.85);
+  --shadow-sm: 0 1px 2px rgba(0,0,0,.35), 0 1px 1px rgba(0,0,0,.25);
+  --shadow-md: 0 4px 14px rgba(0,0,0,.45), 0 1px 3px rgba(0,0,0,.3);
 }
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -41,7 +97,7 @@ body {
 /* ── Header ──────────────────────────────────────────── */
 header {
   display: flex; align-items: center; gap: 14px;
-  padding: 14px 26px; background: rgba(255,255,255,.85);
+  padding: 14px 26px; background: var(--header-bg);
   backdrop-filter: saturate(160%) blur(8px); -webkit-backdrop-filter: saturate(160%) blur(8px);
   border-bottom: 1px solid var(--line);
   position: sticky; top: 0; z-index: 20;
@@ -71,17 +127,31 @@ header {
 @keyframes refresh-spin { to { transform: rotate(360deg); } }
 .refresh-btn.flash { background: rgba(5,150,105,.10); border-color: rgba(5,150,105,.35); color: var(--green); }
 
+.theme-toggle-btn {
+  display: flex; align-items: center; justify-content: center; width: 28px; height: 26px;
+  background: var(--bg-soft); border: 1px solid var(--line-soft); border-radius: 6px;
+  color: var(--text-soft); cursor: pointer; transition: all .12s; flex-shrink: 0;
+}
+.theme-toggle-btn:hover { background: var(--bg-elev); border-color: var(--line); color: var(--text); }
+/* Icône = ce que le clic activera (lune visible en clair, soleil visible en sombre) */
+.theme-toggle-btn .icon-sun { display: none; }
+:root[data-theme="dark"] .theme-toggle-btn .icon-sun { display: block; }
+:root[data-theme="dark"] .theme-toggle-btn .icon-moon { display: none; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .theme-toggle-btn .icon-sun { display: block; }
+  :root:not([data-theme="light"]) .theme-toggle-btn .icon-moon { display: none; }
+}
 .lang-toggle { display: flex; gap: 0; background: var(--bg-soft); border: 1px solid var(--line-soft); border-radius: 6px; padding: 2px; }
 .lang-btn { padding: 3px 9px; font-size: 10px; font-weight: 700; border: none; background: none; cursor: pointer; color: var(--text-mute); border-radius: 4px; font-family: inherit; letter-spacing: 0.5px; transition: all .12s; }
 .lang-btn:hover { color: var(--text); }
-.lang-btn.active { background: var(--text); color: #fff; }
+.lang-btn.active { background: var(--ink-solid); color: #fff; }
 .live-indicator { display: flex; align-items: center; gap: 7px; font-size: 11px; color: var(--text-mute); font-weight: 500; text-transform: uppercase; letter-spacing: 0.5px; }
 .live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-dim); transition: background 0.3s; box-shadow: 0 0 0 3px rgba(154,147,137,.15); }
 .live-dot.connected { background: var(--accent); box-shadow: 0 0 0 3px rgba(205,0,0,.15); animation: pulse 2s ease-in-out infinite; }
 @keyframes pulse { 0%,100%{box-shadow: 0 0 0 3px rgba(205,0,0,.15)} 50%{box-shadow: 0 0 0 6px rgba(205,0,0,.05)} }
 
 /* ── Tabs ────────────────────────────────────────────── */
-.tab-nav { display: flex; padding: 0 26px; background: rgba(255,255,255,.85); backdrop-filter: blur(8px); border-bottom: 1px solid var(--line); position: sticky; top: 49px; z-index: 19; }
+.tab-nav { display: flex; padding: 0 26px; background: var(--header-bg); backdrop-filter: blur(8px); border-bottom: 1px solid var(--line); position: sticky; top: 49px; z-index: 19; }
 .tab-btn { padding: 10px 18px; font-size: 13px; font-weight: 500; border: none; background: none; cursor: pointer; color: var(--text-mute); border-bottom: 2px solid transparent; margin-bottom: -1px; transition: color .15s; font-family: inherit; }
 .tab-btn.active { color: var(--text); border-bottom-color: var(--text); }
 .tab-btn:hover:not(.active) { color: var(--text-soft); }
@@ -101,12 +171,12 @@ main { padding: 20px 26px; max-width: 1500px; margin: 0 auto; }
 .top-grid { display: grid; grid-template-columns: 230px 1fr 270px; gap: 12px; margin-bottom: 12px; }
 
 /* "Today" card */
-.today-card { background: linear-gradient(150deg, #ffffff 0%, #fbfaf6 100%); }
+.today-card { background: linear-gradient(150deg, var(--bg-elev) 0%, var(--bg-soft) 100%); }
 .cost-stack { display: flex; align-items: baseline; gap: 8px; margin-bottom: 4px; }
 .cost-big {
   font-size: 34px; font-weight: 700; letter-spacing: -1.2px; line-height: 1;
   font-variant-numeric: tabular-nums;
-  background: linear-gradient(135deg, #1a1612 0%, #5b554c 100%);
+  background: linear-gradient(135deg, var(--text) 0%, var(--text-soft) 100%);
   -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
 }
 .cost-pill { display: inline-block; font-size: 10px; padding: 3px 8px; border-radius: 999px; background: rgba(5,150,105,.08); color: var(--green); font-weight: 600; letter-spacing: 0.3px; }
@@ -160,7 +230,7 @@ main { padding: 20px 26px; max-width: 1500px; margin: 0 auto; }
 .ls-cost-plan-label { font-size: 9px; color: var(--text-mute); text-transform: uppercase; letter-spacing: 0.4px; }
 .ls-subagents { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line-soft); display: flex; flex-direction: column; gap: 4px; }
 .ls-subagents-label { font-size: 9px; color: var(--text-mute); text-transform: uppercase; letter-spacing: 0.4px; font-weight: 600; margin-bottom: 1px; display: flex; align-items: center; gap: 5px; }
-.ls-subagents-label .ls-sub-count { background: var(--text); color: #fff; border-radius: 999px; padding: 1px 6px; font-size: 9px; }
+.ls-subagents-label .ls-sub-count { background: var(--ink-solid); color: #fff; border-radius: 999px; padding: 1px 6px; font-size: 9px; }
 .ls-sub { display: flex; align-items: center; gap: 6px; font-size: 10px; }
 .ls-sub-dot { width: 6px; height: 6px; border-radius: 2px; flex-shrink: 0; }
 .ls-sub-name { color: var(--text-soft); font-weight: 500; flex-shrink: 0; }
@@ -199,7 +269,7 @@ main { padding: 20px 26px; max-width: 1500px; margin: 0 auto; }
 /* Détail sous-agents */
 .ls-detail { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line-soft); }
 .ls-detail-title { font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-mute); margin-bottom: 6px; display: flex; align-items: center; gap: 5px; }
-.ls-sub-count { background: var(--text); color: #fff; border-radius: 999px; padding: 1px 6px; font-size: 9px; }
+.ls-sub-count { background: var(--ink-solid); color: #fff; border-radius: 999px; padding: 1px 6px; font-size: 9px; }
 /* separate + border-spacing:0 (pas collapse) : évite le glitch de bordure mal
    positionnée (traverse le texte) que Chromium produit par intermittence sur
    des tables entièrement remplacées à haute fréquence (rafraîchi par SSE) */
@@ -229,7 +299,7 @@ main { padding: 20px 26px; max-width: 1500px; margin: 0 auto; }
 .feed-row:last-child { border-bottom: none; }
 .feed-row.new-row { animation: flash 1s ease-out; }
 @keyframes flash {
-  0%   { background: rgba(254,249,231,1); }
+  0%   { background: var(--flash); }
   100% { background: transparent; }
 }
 
@@ -308,7 +378,7 @@ main { padding: 20px 26px; max-width: 1500px; margin: 0 auto; }
 }
 .calc-num {
   display: inline-flex; align-items: center; justify-content: center;
-  width: 22px; height: 22px; background: var(--text); color: #fff;
+  width: 22px; height: 22px; background: var(--ink-solid); color: #fff;
   border-radius: 6px; font-size: 11px; font-weight: 700;
 }
 
@@ -376,7 +446,7 @@ main { padding: 20px 26px; max-width: 1500px; margin: 0 auto; }
 }
 .filter-select:focus, .filter-input:focus { border-color: var(--text-soft); }
 .filter-input { width: 170px; cursor: text; }
-#btn-load-sessions, #btn-load-stats { font-size: 12px; font-weight: 500; padding: 6px 16px; background: var(--text); color: #fff; border: none; border-radius: 7px; cursor: pointer; font-family: inherit; transition: background .15s; }
+#btn-load-sessions, #btn-load-stats { font-size: 12px; font-weight: 500; padding: 6px 16px; background: var(--ink-solid); color: #fff; border: none; border-radius: 7px; cursor: pointer; font-family: inherit; transition: background .15s; }
 #btn-load-sessions:hover, #btn-load-stats:hover { background: #2c2620; }
 #sessions-summary { font-size: 11px; color: var(--text-mute); margin-left: auto; font-variant-numeric: tabular-nums; }
 #sessions-summary strong { color: var(--text); font-weight: 600; }
@@ -418,7 +488,7 @@ main { padding: 20px 26px; max-width: 1500px; margin: 0 auto; }
 .delta-neg-hi { color: var(--green); font-weight: 600; }
 .delta-neg-lo { color: var(--green); }
 .delta-flat   { color: var(--text-dim); }
-.summary-row td { background: #efe9dc !important; font-weight: 700; border-top: 2px solid var(--line) !important; }
+.summary-row td { background: var(--summary-bg) !important; font-weight: 700; border-top: 2px solid var(--line) !important; }
 
 #timeline-card { margin-top: 12px; display: none; }
 .timeline-table td.t-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 340px; color: var(--text-soft); }
@@ -476,6 +546,15 @@ main { padding: 20px 26px; max-width: 1500px; margin: 0 auto; }
       <path d="M13.5 2v3.5H10"/>
     </svg>
     <span data-i18n="refresh">Rafraîchir</span>
+  </button>
+  <button class="theme-toggle-btn" id="btn-theme-toggle" title="Basculer thème clair / sombre">
+    <svg class="icon-sun" viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true">
+      <circle cx="8" cy="8" r="3.1"/>
+      <path d="M8 1.2v1.6M8 13.2v1.6M2.6 8H1M15 8h-1.6M3.6 3.6l1.1 1.1M11.3 11.3l1.1 1.1M12.4 3.6l-1.1 1.1M4.7 11.3l-1.1 1.1"/>
+    </svg>
+    <svg class="icon-moon" viewBox="0 0 16 16" width="13" height="13" fill="currentColor" aria-hidden="true">
+      <path d="M13.8 10.2A6 6 0 0 1 6.1 2.4a.5.5 0 0 0-.6-.7 7 7 0 1 0 9 9 .5.5 0 0 0-.7-.5z"/>
+    </svg>
   </button>
   <div class="lang-toggle" title="Changer de langue / Switch language">
     <button class="lang-btn" data-lang="fr">FR</button>
@@ -1040,7 +1119,7 @@ const I18N = {
           <tbody>
             <tr><td><strong style="color:#7c3aed">Opus 4.7 / 4.6 / 4.5</strong></td><td class="num">$5</td><td class="num">$25</td><td class="num">$6.25</td><td class="num">$0.50</td><td class="num">1M (4.7) / 200K</td></tr>
             <tr><td><strong style="color:#9d4edd">Opus 4.0</strong></td><td class="num">$15</td><td class="num">$75</td><td class="num">$18.75</td><td class="num">$1.50</td><td class="num">200K</td></tr>
-            <tr><td><strong style="color:#2563eb">Sonnet 4.6</strong></td><td class="num">$3</td><td class="num">$15</td><td class="num">$3.75</td><td class="num">$0.30</td><td class="num">1M</td></tr>
+            <tr><td><strong style="color:#0369a1">Sonnet 4.6</strong></td><td class="num">$3</td><td class="num">$15</td><td class="num">$3.75</td><td class="num">$0.30</td><td class="num">1M</td></tr>
             <tr><td><strong style="color:#059669">Haiku 4.5</strong></td><td class="num">$1</td><td class="num">$5</td><td class="num">$1.25</td><td class="num">$0.10</td><td class="num">200K</td></tr>
           </tbody>
         </table>
@@ -1372,7 +1451,7 @@ const I18N = {
           <tbody>
             <tr><td><strong style="color:#7c3aed">Opus 4.7 / 4.6 / 4.5</strong></td><td class="num">$5</td><td class="num">$25</td><td class="num">$6.25</td><td class="num">$0.50</td><td class="num">1M (4.7) / 200K</td></tr>
             <tr><td><strong style="color:#9d4edd">Opus 4.0</strong></td><td class="num">$15</td><td class="num">$75</td><td class="num">$18.75</td><td class="num">$1.50</td><td class="num">200K</td></tr>
-            <tr><td><strong style="color:#2563eb">Sonnet 4.6</strong></td><td class="num">$3</td><td class="num">$15</td><td class="num">$3.75</td><td class="num">$0.30</td><td class="num">1M</td></tr>
+            <tr><td><strong style="color:#0369a1">Sonnet 4.6</strong></td><td class="num">$3</td><td class="num">$15</td><td class="num">$3.75</td><td class="num">$0.30</td><td class="num">1M</td></tr>
             <tr><td><strong style="color:#059669">Haiku 4.5</strong></td><td class="num">$1</td><td class="num">$5</td><td class="num">$1.25</td><td class="num">$0.10</td><td class="num">200K</td></tr>
           </tbody>
         </table>
@@ -1515,6 +1594,9 @@ document.querySelectorAll('.lang-btn').forEach(b => {
   });
 });
 
+// Thème clair/sombre : wiring plus bas dans le fichier (a besoin de $, cv,
+// et des fonctions de rendu des charts, toutes définies plus loin).
+
 // ── Helpers ──────────────────────────────────────────────
 const fmtTok = n => n >= 1e9 ? (n/1e9).toFixed(1)+'G' : n >= 1e6 ? (n/1e6).toFixed(1)+'M' : n >= 1e3 ? (n/1e3).toFixed(0)+'k' : String(n||0);
 const fmtCost = c => {
@@ -1601,13 +1683,17 @@ const fmtRelative = ms => {
 };
 const escHtml = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 const $ = id => document.getElementById(id);
+// Lit une CSS custom property résolue (thème courant) — pour les couleurs de
+// grille/axe des charts Chart.js, qui dessinent sur <canvas> et ne peuvent
+// donc pas référencer var(--x) directement comme le ferait du CSS normal.
+const cv = name => getComputedStyle(document.body).getPropertyValue(name).trim();
 
 const MODEL_COLORS = {
   'claude-fable-5-1':'#b45309',
   'claude-opus-5':'#7c3aed',
   'claude-opus-4-7':'#7c3aed','claude-opus-4-6':'#7c3aed','claude-opus-4-5':'#7c3aed','claude-opus-4':'#9d4edd',
-  'claude-sonnet-5':'#2563eb',
-  'claude-sonnet-4-6':'#2563eb',
+  'claude-sonnet-5':'#0369a1',
+  'claude-sonnet-4-6':'#0369a1',
   'claude-haiku-4-5-20251001':'#059669','claude-haiku-4-5':'#059669',
 };
 const MODEL_SHORT = {
@@ -1762,8 +1848,8 @@ function initCharts(stats) {
         },
       },
       scales:{
-        y:{beginAtZero:true, ticks:{callback: v=>'$'+v.toFixed(2), font:{size:10}, color:'#9a9389'}, grid:{color:'#f0ebe1', drawBorder:false}},
-        x:{ticks:{font:{size:11}, color:'#5b554c'}, grid:{display:false, drawBorder:false}}
+        y:{beginAtZero:true, ticks:{callback: v=>'$'+v.toFixed(2), font:{size:10}, color:cv('--text-mute')}, grid:{color:cv('--line-soft'), drawBorder:false}},
+        x:{ticks:{font:{size:11}, color:cv('--text-soft')}, grid:{display:false, drawBorder:false}}
       }
     },
   });
@@ -1779,7 +1865,7 @@ function initCharts(stats) {
     }]},
     options: { responsive:true, maintainAspectRatio:false, cutout:'62%',
       plugins:{
-        legend:{position:'bottom', labels:{font:{size:11}, padding:10, boxWidth:10, boxHeight:10, color:'#5b554c', usePointStyle:true, pointStyle:'circle'}},
+        legend:{position:'bottom', labels:{font:{size:11}, padding:10, boxWidth:10, boxHeight:10, color:cv('--text-soft'), usePointStyle:true, pointStyle:'circle'}},
         tooltip:{
           backgroundColor:'#1a1612', titleColor:'#fbfaf6', bodyColor:'#fbfaf6', padding:10, cornerRadius:8,
           callbacks:{
@@ -1794,9 +1880,11 @@ function initCharts(stats) {
   });
 }
 
+let lastStatsPayload = null;
 async function loadStats() {
   const res   = await fetch('/api/stats?days=7');
   const stats = await res.json();
+  lastStatsPayload = stats;
   today     = { ...stats.today };
   feedItems = (stats.liveFeed || []).slice(0, 50);
   renderToday();
@@ -2071,7 +2159,7 @@ function buildSessionsChart(sessions) {
       plugins: {
         legend: {
           display: true, position: 'top', align: 'end',
-          labels: { font:{size:10}, boxWidth:14, boxHeight:2, padding:12, color:'#5b554c', usePointStyle:false },
+          labels: { font:{size:10}, boxWidth:14, boxHeight:2, padding:12, color:cv('--text-soft'), usePointStyle:false },
         },
         tooltip: {
           backgroundColor:'#1a1612', titleColor:'#fbfaf6', bodyColor:'#fbfaf6', padding:10, cornerRadius:8, displayColors:false,
@@ -2089,10 +2177,10 @@ function buildSessionsChart(sessions) {
         },
       },
       scales: {
-        y: { beginAtZero:true, ticks:{ callback: v => fmtCost(v), font:{size:10}, color:'#9a9389' }, grid:{color:'#f0ebe1', drawBorder:false} },
+        y: { beginAtZero:true, ticks:{ callback: v => fmtCost(v), font:{size:10}, color:cv('--text-mute') }, grid:{color:cv('--line-soft'), drawBorder:false} },
         x: {
           ticks:{
-            font:{size:10}, color:'#5b554c',
+            font:{size:10}, color:cv('--text-soft'),
             maxRotation: chartMode === 'hourly' ? 45 : 0,
             autoSkip: false,
             callback: function(_, idx) { return idx % xStep === 0 ? this.getLabelForValue(idx) : ''; },
@@ -2253,8 +2341,8 @@ function renderTopProjects(sessions) {
         },
       },
       scales: {
-        x: { beginAtZero:true, ticks:{ callback: v => fmtCost(v), font:{size:10}, color:'#9a9389' }, grid:{color:'#f0ebe1', drawBorder:false} },
-        y: { ticks:{ font:{size:10}, color:'#5b554c' }, grid:{display:false, drawBorder:false} },
+        x: { beginAtZero:true, ticks:{ callback: v => fmtCost(v), font:{size:10}, color:cv('--text-mute') }, grid:{color:cv('--line-soft'), drawBorder:false} },
+        y: { ticks:{ font:{size:10}, color:cv('--text-soft') }, grid:{display:false, drawBorder:false} },
       },
     },
   });
@@ -2694,6 +2782,7 @@ $('sess-days').addEventListener('change', loadSessionsTab);
 $('sess-project-select').addEventListener('change', loadSessionsTab);
 
 // ── Statistiques tab ───────────────────────────────────────
+let lastStatsTabSessions = [];
 async function loadStatsTab() {
   const days    = parseInt($('stats-days').value, 10);
   const project = $('stats-project-select').value.trim() || null;
@@ -2706,6 +2795,7 @@ async function loadStatsTab() {
     refreshProjectOptions(allData, 'stats-project-select');
     const sessions = project ? allData.filter(s => s.project === project) : allData;
     computeEfficiencyScores(sessions);
+    lastStatsTabSessions = sessions;
     $('stats-summary').textContent = sessions.length ? `${sessions.length} ${t('sessions')}` : '';
     renderStatsKPIs(sessions);
     renderStatsCharts(sessions);
@@ -2804,8 +2894,8 @@ function renderEfficiencyHistChart(sessions) {
         } },
       },
       scales: {
-        y: { beginAtZero: true, ticks: { stepSize: 1, font: { size: 10 }, color: '#9a9389' }, grid: { color: '#f0ebe1', drawBorder: false } },
-        x: { ticks: { font: { size: 9 }, color: '#5b554c' }, grid: { display: false } },
+        y: { beginAtZero: true, ticks: { stepSize: 1, font: { size: 10 }, color: cv('--text-mute') }, grid: { color: cv('--line-soft'), drawBorder: false } },
+        x: { ticks: { font: { size: 9 }, color: cv('--text-soft') }, grid: { display: false } },
       },
     },
   });
@@ -2831,10 +2921,10 @@ function renderDurationCostChart(sessions) {
         } },
       },
       scales: {
-        x: { type: 'logarithmic', title: { display: true, text: t('durationCol') + ' (min)', font: { size: 10 }, color: '#9a9389' },
-             ticks: { font: { size: 9 }, color: '#9a9389', callback: v => fmtDuration(v*60_000) }, grid: { color: '#f0ebe1', drawBorder: false } },
-        y: { type: 'logarithmic', title: { display: true, text: 'Forfait $', font: { size: 10 }, color: '#9a9389' },
-             ticks: { font: { size: 9 }, color: '#9a9389', callback: v => fmtCost(v) }, grid: { color: '#f0ebe1', drawBorder: false } },
+        x: { type: 'logarithmic', title: { display: true, text: t('durationCol') + ' (min)', font: { size: 10 }, color: cv('--text-mute') },
+             ticks: { font: { size: 9 }, color: cv('--text-mute'), callback: v => fmtDuration(v*60_000) }, grid: { color: cv('--line-soft'), drawBorder: false } },
+        y: { type: 'logarithmic', title: { display: true, text: 'Forfait $', font: { size: 10 }, color: cv('--text-mute') },
+             ticks: { font: { size: 9 }, color: cv('--text-mute'), callback: v => fmtCost(v) }, grid: { color: cv('--line-soft'), drawBorder: false } },
       },
     },
   });
@@ -2860,8 +2950,8 @@ function renderThroughputModelChart(sessions) {
       indexAxis: 'y', responsive: true, maintainAspectRatio: false,
       plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => ` ${fmtTok(ctx.raw)} tokens/min` } } },
       scales: {
-        x: { beginAtZero: true, ticks: { callback: v => fmtTok(v), font: { size: 10 }, color: '#9a9389' }, grid: { color: '#f0ebe1', drawBorder: false } },
-        y: { ticks: { font: { size: 10 }, color: '#5b554c' }, grid: { display: false } },
+        x: { beginAtZero: true, ticks: { callback: v => fmtTok(v), font: { size: 10 }, color: cv('--text-mute') }, grid: { color: cv('--line-soft'), drawBorder: false } },
+        y: { ticks: { font: { size: 10 }, color: cv('--text-soft') }, grid: { display: false } },
       },
     },
   });
@@ -2884,8 +2974,8 @@ function renderSubagentsDistChart(sessions) {
       responsive: true, maintainAspectRatio: false,
       plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => ` ${ctx.raw} session${ctx.raw > 1 ? 's' : ''}` } } },
       scales: {
-        y: { beginAtZero: true, ticks: { stepSize: 1, font: { size: 10 }, color: '#9a9389' }, grid: { color: '#f0ebe1', drawBorder: false } },
-        x: { title: { display: true, text: t('subagentsLabel'), font: { size: 10 }, color: '#9a9389' }, ticks: { font: { size: 10 }, color: '#5b554c' }, grid: { display: false } },
+        y: { beginAtZero: true, ticks: { stepSize: 1, font: { size: 10 }, color: cv('--text-mute') }, grid: { color: cv('--line-soft'), drawBorder: false } },
+        x: { title: { display: true, text: t('subagentsLabel'), font: { size: 10 }, color: cv('--text-mute') }, ticks: { font: { size: 10 }, color: cv('--text-soft') }, grid: { display: false } },
       },
     },
   });
@@ -2901,8 +2991,8 @@ function renderRtkDailyChart(sessions) {
       responsive: true, maintainAspectRatio: false,
       plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => ` +${fmtTok(ctx.raw)} tokens` } } },
       scales: {
-        y: { beginAtZero: true, ticks: { callback: v => fmtTok(v), font: { size: 10 }, color: '#9a9389' }, grid: { color: '#f0ebe1', drawBorder: false } },
-        x: { ticks: { font: { size: 10 }, color: '#5b554c' }, grid: { display: false } },
+        y: { beginAtZero: true, ticks: { callback: v => fmtTok(v), font: { size: 10 }, color: cv('--text-mute') }, grid: { color: cv('--line-soft'), drawBorder: false } },
+        x: { ticks: { font: { size: 10 }, color: cv('--text-soft') }, grid: { display: false } },
       },
     },
   });
@@ -2918,8 +3008,8 @@ function renderQuotaDailyChart(sessions) {
       responsive: true, maintainAspectRatio: false,
       plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => ` ≈ ${ctx.raw}%` } } },
       scales: {
-        y: { beginAtZero: true, ticks: { callback: v => v + '%', font: { size: 10 }, color: '#9a9389' }, grid: { color: '#f0ebe1', drawBorder: false } },
-        x: { ticks: { font: { size: 10 }, color: '#5b554c' }, grid: { display: false } },
+        y: { beginAtZero: true, ticks: { callback: v => v + '%', font: { size: 10 }, color: cv('--text-mute') }, grid: { color: cv('--line-soft'), drawBorder: false } },
+        x: { ticks: { font: { size: 10 }, color: cv('--text-soft') }, grid: { display: false } },
       },
     },
   });
@@ -2991,6 +3081,29 @@ refreshBtn.addEventListener('click', async () => {
     refreshBtn.classList.remove('spinning');
     refreshBtn.disabled = false;
   }
+});
+
+// ── Thème clair / sombre ─────────────────────────────────
+// Les tokens CSS basculent tout seuls (cf. :root[data-theme]) ; ce qui suit
+// ne fait que persister le choix et redessiner les charts <canvas>, dont les
+// couleurs de grille/axe sont lues via cv() au moment de la construction —
+// impossible à faire réagir à un simple changement de variable CSS.
+const THEME_KEY = 'ccu-theme';
+function currentTheme() {
+  const explicit = document.documentElement.dataset.theme;
+  if (explicit === 'light' || explicit === 'dark') return explicit;
+  return (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+}
+function rerenderThemedCharts() {
+  if (lastStatsPayload) initCharts(lastStatsPayload);
+  if (sessionsData?.length) renderSessions(sessionsData);
+  if (lastStatsTabSessions?.length) renderStatsCharts(lastStatsTabSessions);
+}
+$('btn-theme-toggle').addEventListener('click', () => {
+  const next = currentTheme() === 'dark' ? 'light' : 'dark';
+  document.documentElement.dataset.theme = next;
+  try { localStorage.setItem(THEME_KEY, next); } catch {}
+  rerenderThemedCharts();
 });
 
 applyI18n();
