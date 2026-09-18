@@ -599,11 +599,17 @@ async function parseJsonlFull(filePath) {
   const seenIds = new Set();
   let cost = 0, costPlan = 0, costNoCache = 0;
   let maxContext = 0, sumContext = 0, callCount = 0;
+  let firstEventTs = 0, lastEventTs = 0;
   try {
     const rl = createInterface({ input: createReadStream(filePath), crlfDelay: Infinity });
     for await (const line of rl) {
       if (!line.trim()) continue;
       let r; try { r = JSON.parse(line); } catch { continue; }
+      if (r.timestamp) {
+        const t = new Date(r.timestamp).getTime();
+        if (t > lastEventTs) lastEventTs = t;
+        if (!firstEventTs || t < firstEventTs) firstEventTs = t;
+      }
       const u = r.message?.usage;
       if (!u) continue;
       const mid = r.message?.id;
@@ -662,7 +668,11 @@ async function parseJsonlFull(filePath) {
       }
     }
   } catch {}
-  return { usage, byModel, byTool, bashInvocations, cost, costPlan, costNoCache, maxContext, avgContext: callCount ? sumContext / callCount : 0, callCount };
+  return {
+    usage, byModel, byTool, bashInvocations, cost, costPlan, costNoCache, maxContext,
+    avgContext: callCount ? sumContext / callCount : 0, callCount,
+    firstEventTs: firstEventTs || null, lastEventTs: lastEventTs || null,
+  };
 }
 
 async function scanSubagents(sessionDir) {
@@ -868,6 +878,8 @@ async function parseSessionFull(filePath, projEncoded) {
       callCount:   sa.callCount,
       total:       sa.usage.in + sa.usage.out + sa.usage.cw + sa.usage.cr,
       usage:       sa.usage,
+      firstEventTs: sa.firstEventTs,
+      lastEventTs:  sa.lastEventTs,
     })),
   };
 }

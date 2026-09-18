@@ -120,6 +120,14 @@ main { padding: 20px 26px; max-width: 1500px; margin: 0 auto; }
 .calls-badge strong { color: var(--text-soft); font-weight: 600; }
 .chart-wrap { position: relative; height: 170px; }
 
+/* ── Statistiques tab ─────────────────────────────────── */
+.stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 16px; }
+@media (max-width: 900px) { .stats-grid { grid-template-columns: 1fr; } }
+.stats-chart-wrap { position: relative; height: 220px; }
+#stats-kpi-strip { grid-template-columns: repeat(5, 1fr); }
+@media (max-width: 1400px) { #stats-kpi-strip { grid-template-columns: repeat(3, 1fr); } }
+@media (max-width: 700px)  { #stats-kpi-strip { grid-template-columns: repeat(2, 1fr); } }
+
 /* ── Live sessions card (on dashboard) ───────────────── */
 .dual-live-grid { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 12px; align-items: start; margin-bottom: 12px; }
 @media (max-width: 1100px) { .dual-live-grid { grid-template-columns: 1fr; } }
@@ -368,8 +376,8 @@ main { padding: 20px 26px; max-width: 1500px; margin: 0 auto; }
 }
 .filter-select:focus, .filter-input:focus { border-color: var(--text-soft); }
 .filter-input { width: 170px; cursor: text; }
-#btn-load-sessions { font-size: 12px; font-weight: 500; padding: 6px 16px; background: var(--text); color: #fff; border: none; border-radius: 7px; cursor: pointer; font-family: inherit; transition: background .15s; }
-#btn-load-sessions:hover { background: #2c2620; }
+#btn-load-sessions, #btn-load-stats { font-size: 12px; font-weight: 500; padding: 6px 16px; background: var(--text); color: #fff; border: none; border-radius: 7px; cursor: pointer; font-family: inherit; transition: background .15s; }
+#btn-load-sessions:hover, #btn-load-stats:hover { background: #2c2620; }
 #sessions-summary { font-size: 11px; color: var(--text-mute); margin-left: auto; font-variant-numeric: tabular-nums; }
 #sessions-summary strong { color: var(--text); font-weight: 600; }
 
@@ -482,6 +490,7 @@ main { padding: 20px 26px; max-width: 1500px; margin: 0 auto; }
 <nav class="tab-nav">
   <button class="tab-btn active" data-tab="dashboard" data-i18n="tabDashboard">Dashboard</button>
   <button class="tab-btn" data-tab="sessions" data-i18n="tabSessions">Sessions</button>
+  <button class="tab-btn" data-tab="stats" data-i18n="tabStats">Statistiques</button>
   <button class="tab-btn" data-tab="conseils" data-i18n="tabConseils">Conseils</button>
   <button class="tab-btn" data-tab="calculs" data-i18n="tabCalculs">Calculs</button>
 </nav>
@@ -664,11 +673,15 @@ main { padding: 20px 26px; max-width: 1500px; margin: 0 auto; }
           <th data-i18n="date" title="Date de dernière modification du fichier .jsonl de la session">Date</th>
           <th data-i18n="uuid" title="UUID court (8 premiers caractères) — survol pour voir l'UUID complet">UUID</th>
           <th data-i18n="model" title="Modèle dominant (celui qui a généré le plus de coût). Une session peut mêler plusieurs modèles via les sous-agents.">Modèle</th>
+          <th class="num" data-i18n="subagentsLabel" title="Nombre de sous-agents (Task) lancés par cette session. — = aucun sous-agent.">Sous-agents</th>
           <th class="num" data-i18n="input" title="Tokens d'entrée — facturés au tarif input plein">Input</th>
           <th class="num" data-i18n="output" title="Tokens de sortie — les plus chers (≈5× le prix input)">Output</th>
           <th class="num" data-i18n="cacheR" title="Cache READ — non facturé sur l'abonnement Claude Code (10% du tarif input sur l'API)">Cache R</th>
           <th class="num" data-i18n="cacheW" title="Cache WRITE — création de cache, 1.25× le tarif input">Cache W</th>
           <th class="num" data-i18n="total" title="Total tokens : in + out + cw + cr">Total</th>
+          <th class="num" data-i18n="durationCol" title="Durée de la session : dernier événement − premier événement horodaté dans le JSONL.&#10;Inclut les temps d'inactivité (réflexion, pauses) — ce n'est pas un temps de calcul pur.">Durée</th>
+          <th class="num" data-i18n="throughputCol" title="Débit moyen : total tokens / durée, en tokens par minute.&#10;— = durée trop courte (&lt; 1s) pour être significative.">Débit</th>
+          <th class="num" data-i18n="efficiencyCol" title="Note de « rentabilité » sur 10, RELATIVE aux sessions affichées dans cette fenêtre (pas un seuil absolu).&#10;Combine 2 rangs percentiles : durée et total tokens de la session, comparés à toutes les sessions listées.&#10;10 = parmi les plus courtes ET les moins gourmandes en tokens. 0 = parmi les plus longues ET les plus gourmandes.&#10;Change si tu changes la fenêtre ou le filtre projet (la comparaison se refait sur le nouvel ensemble).">Note</th>
           <th data-i18n="contextCol" title="Contexte max observé dans la session, en % du max modèle (Opus 4.7 = 1M, autres = 200K).&#10;Calcul par appel : input + cache_read + cache_creation = tokens envoyés au modèle.&#10;Conseil : utiliser /compact dès ~40% pour optimiser le coût et la latence.">Contexte</th>
           <th class="num" title="Coût FORFAIT (Claude Code abo). Cache read EXCLU.&#10;Calcul : in×$in + out×$out + cw×$cw"><span data-i18n="forfait">Forfait</span> $</th>
           <th class="num" title="Coût API théorique (Anthropic API). Cache read INCLUS.&#10;Calcul : in×$in + out×$out + cw×$cw + cr×$cr"><span data-i18n="apiCol">API</span> $</th>
@@ -680,7 +693,7 @@ main { padding: 20px 26px; max-width: 1500px; margin: 0 auto; }
         </tr>
       </thead>
       <tbody id="sessions-body">
-        <tr><td colspan="17" style="padding:32px;text-align:center;color:var(--text-dim)" data-i18n="clickLoad">Cliquez sur "Charger" pour afficher les sessions</td></tr>
+        <tr><td colspan="21" style="padding:32px;text-align:center;color:var(--text-dim)" data-i18n="clickLoad">Cliquez sur "Charger" pour afficher les sessions</td></tr>
       </tbody>
     </table>
   </div>
@@ -711,6 +724,87 @@ main { padding: 20px 26px; max-width: 1500px; margin: 0 auto; }
 </main>
 </div>
 
+<!-- ══ TAB STATISTIQUES ═══════════════════════════════════ -->
+<div id="tab-stats" class="tab-content">
+<main>
+
+  <div class="sessions-filters">
+    <div class="filter-group">
+      <span class="filter-label" data-i18n="window">Fenêtre</span>
+      <select class="filter-select" id="stats-days">
+        <option value="1" data-i18n="todayOpt">Aujourd'hui (1j)</option>
+        <option value="3" data-i18n="d3">3 jours</option>
+        <option value="7" selected data-i18n="d7">7 jours</option>
+        <option value="14" data-i18n="d14">14 jours</option>
+        <option value="30" data-i18n="d30">30 jours</option>
+      </select>
+    </div>
+    <div class="filter-group">
+      <span class="filter-label" data-i18n="project">Projet</span>
+      <select class="filter-select" id="stats-project-select" style="min-width:180px">
+        <option value="" data-i18n="allProjects">— Tous —</option>
+      </select>
+    </div>
+    <button id="btn-load-stats" data-i18n="load">Charger</button>
+    <span id="stats-summary"></span>
+  </div>
+
+  <div id="stats-loading"><div class="spinner" style="margin:0 auto 8px"></div><span data-i18n="loadingStats">Chargement des statistiques…</span></div>
+
+  <div class="kpi-strip" id="stats-kpi-strip" style="display:none">
+    <div class="kpi" title="Note de rentabilité moyenne (/10) des sessions de la fenêtre — cf. colonne « Note » de l'onglet Sessions.">
+      <div class="kpi-label" data-i18n="statsKpiScore">Note moyenne</div>
+      <div class="kpi-value" id="stats-kpi-score">—</div>
+    </div>
+    <div class="kpi" title="Débit global = Σ total tokens / Σ durée sur toutes les sessions de la fenêtre (moyenne pondérée, pas une moyenne des débits par session).">
+      <div class="kpi-label" data-i18n="statsKpiThroughput">Débit moyen</div>
+      <div class="kpi-value" id="stats-kpi-throughput">—</div>
+    </div>
+    <div class="kpi" title="Nombre total de sous-agents (Task) lancés sur la fenêtre, toutes sessions confondues.">
+      <div class="kpi-label" data-i18n="statsKpiSubagents">Sous-agents</div>
+      <div class="kpi-value" id="stats-kpi-subagents">—</div>
+      <div class="kpi-sub" id="stats-kpi-subagents-sub">—</div>
+    </div>
+    <div class="kpi" title="Tokens économisés par RTK sur la fenêtre (somme du gain par session).">
+      <div class="kpi-label" data-i18n="statsKpiRtk">RTK gain</div>
+      <div class="kpi-value" id="stats-kpi-rtk">—</div>
+    </div>
+    <div class="kpi" title="Somme des estimations de quota hebdo consommées par les sessions de la fenêtre (cf. colonne « Quota hebdo » de l'onglet Sessions) — approximatif, exclut les sessions marquées non fiables.">
+      <div class="kpi-label" data-i18n="statsKpiQuota">Quota hebdo estimé</div>
+      <div class="kpi-value" id="stats-kpi-quota">—</div>
+    </div>
+  </div>
+
+  <div class="stats-grid">
+    <div class="card">
+      <div class="card-title" data-i18n="statsChartEfficiencyTitle">Distribution des notes de rentabilité</div>
+      <div class="stats-chart-wrap"><canvas id="chart-efficiency-hist"></canvas></div>
+    </div>
+    <div class="card">
+      <div class="card-title" data-i18n="statsChartDurationCostTitle">Durée × coût par session</div>
+      <div class="stats-chart-wrap"><canvas id="chart-duration-cost"></canvas></div>
+    </div>
+    <div class="card">
+      <div class="card-title" data-i18n="statsChartThroughputModelTitle">Débit moyen par modèle</div>
+      <div class="stats-chart-wrap"><canvas id="chart-throughput-model"></canvas></div>
+    </div>
+    <div class="card">
+      <div class="card-title" data-i18n="statsChartSubagentsDistTitle">Sessions par nombre de sous-agents</div>
+      <div class="stats-chart-wrap"><canvas id="chart-subagents-dist"></canvas></div>
+    </div>
+    <div class="card">
+      <div class="card-title" data-i18n="statsChartRtkDailyTitle">RTK — tokens économisés par jour</div>
+      <div class="stats-chart-wrap"><canvas id="chart-rtk-daily"></canvas></div>
+    </div>
+    <div class="card">
+      <div class="card-title" data-i18n="statsChartQuotaDailyTitle">Quota hebdo estimé consommé par jour</div>
+      <div class="stats-chart-wrap"><canvas id="chart-quota-daily"></canvas></div>
+    </div>
+  </div>
+
+</main>
+</div>
+
 <script>
 // ── Abonnement ───────────────────────────────────────────
 const PLAN_PRICE_USD = 190; // Max X20 — modifier si tu changes de forfait
@@ -721,7 +815,7 @@ const I18N = {
     connecting: 'Connexion…', live: 'Live', reconnecting: 'Reconnexion…',
     refresh: 'Rafraîchir', refreshTooltip: 'Vider le cache serveur et recharger toutes les données',
     refreshing: 'Chargement…', refreshDone: 'À jour ✓',
-    tabDashboard: 'Dashboard', tabSessions: 'Sessions', tabConseils: 'Conseils', tabCalculs: 'Calculs',
+    tabDashboard: 'Dashboard', tabSessions: 'Sessions', tabStats: 'Statistiques', tabConseils: 'Conseils', tabCalculs: 'Calculs',
     headerForfait: 'Plan (hors cache R)', headerApi: 'API brute',
     header5h: 'Session 5h', headerWeek: 'Semaine',
     planUsageTooltip: (t) => `Consommation du forfait Claude, mesurée par l'app desktop Claude (relevé le plus récent : ${t}).`,
@@ -765,6 +859,15 @@ const I18N = {
     todayOpt: 'Aujourd\'hui (1j)', d3: '3 jours', d7: '7 jours', d14: '14 jours', d30: '30 jours',
     allProjects: '— Tous —',
     loadingSessions: 'Chargement des sessions…',
+    loadingStats: 'Chargement des statistiques…',
+    statsKpiScore: 'Note moyenne', statsKpiThroughput: 'Débit moyen', statsKpiSubagents: 'Sous-agents',
+    statsKpiRtk: 'RTK gain', statsKpiQuota: 'Quota hebdo estimé',
+    statsChartEfficiencyTitle: 'Distribution des notes de rentabilité',
+    statsChartDurationCostTitle: 'Durée × coût par session',
+    statsChartThroughputModelTitle: 'Débit moyen par modèle',
+    statsChartSubagentsDistTitle: 'Sessions par nombre de sous-agents',
+    statsChartRtkDailyTitle: 'RTK — tokens économisés par jour',
+    statsChartQuotaDailyTitle: 'Quota hebdo estimé consommé par jour',
     noSessionsInWindow: 'Aucune session dans cette fenêtre',
     clickLoad: 'Cliquez sur "Charger" pour afficher les sessions',
     date: 'Date', uuid: 'UUID', model: 'Modèle',
@@ -808,6 +911,10 @@ const I18N = {
     cacheRTooltip: (n, ratio) => `Cache READ — lectures depuis le prompt cache.\n• Tarif API : 10% du prix input (cr)\n• Forfait Claude Code : NON FACTURÉ\nTotal : ${n}\nRatio : ${ratio}% du contexte`,
     cacheWTooltip: (n) => `Cache WRITE — écritures dans le prompt cache.\nTarif : 1.25× le prix input (création coûteuse mais amortie sur les reads suivants).\nTotal : ${n}`,
     totalTokens: (n) => `Total tokens (in + out + cw + cr) : ${n}`,
+    durationCol: 'Durée', throughputCol: 'Débit', efficiencyCol: 'Note',
+    durationTooltip: (start, end) => `Durée = dernier événement − premier événement horodaté du JSONL.\nDébut : ${start}\nFin : ${end}\nInclut les temps d'inactivité (réflexion, pauses entre messages) — pas un temps de calcul pur.`,
+    throughputTooltip: (total) => `Débit moyen = total tokens / durée, en tokens/minute.\nTotal tokens : ${total}\n— si la durée est trop courte (< 1s) pour être significative.`,
+    efficiencyTooltip: (durPct, tokPct) => `Note de « rentabilité » /10 — RELATIVE aux sessions actuellement affichées, pas un seuil absolu.\nCette session est plus longue que ${durPct}% d'entre elles, et utilise plus de tokens que ${tokPct}% d'entre elles.\nNote = 10 − moyenne(ces 2 rangs) × 10.\n10 = courte ET économe en tokens. 0 = longue ET gourmande.\nChange si tu changes la fenêtre ou le filtre projet.`,
     planFormulaTooltip: (cost) => `Coût FORFAIT (Claude Code abo).\nCalcul : in×$in + out×$out + cw×$cw\nCache read EXCLU.\n= ${cost}`,
     apiFormulaTooltip: (cost, savings) => `Coût API théorique (équivalent Anthropic API).\nCalcul : in×$in + out×$out + cw×$cw + cr×$cr\n= ${cost}\nÉconomie cache : ${savings}`,
     deltaTooltip: (sign, pct, avg, sPlan) => `Écart vs moyenne sessions : ${sign}${pct}%\nMoyenne forfait : ${avg}\nCette session : ${sPlan}`,
@@ -1040,7 +1147,7 @@ const I18N = {
     connecting: 'Connecting…', live: 'Live', reconnecting: 'Reconnecting…',
     refresh: 'Refresh', refreshTooltip: 'Clear server cache and reload all data',
     refreshing: 'Loading…', refreshDone: 'Up to date ✓',
-    tabDashboard: 'Dashboard', tabSessions: 'Sessions', tabConseils: 'Tips', tabCalculs: 'Formulas',
+    tabDashboard: 'Dashboard', tabSessions: 'Sessions', tabStats: 'Statistics', tabConseils: 'Tips', tabCalculs: 'Formulas',
     headerForfait: 'Plan (no cache R)', headerApi: 'Raw API',
     header5h: '5h session', headerWeek: 'Weekly',
     planUsageTooltip: (t) => `Claude plan usage, as measured by the Claude desktop app (latest sample: ${t}).`,
@@ -1084,6 +1191,15 @@ const I18N = {
     todayOpt: 'Today (1d)', d3: '3 days', d7: '7 days', d14: '14 days', d30: '30 days',
     allProjects: '— All —',
     loadingSessions: 'Loading sessions…',
+    loadingStats: 'Loading statistics…',
+    statsKpiScore: 'Average score', statsKpiThroughput: 'Average throughput', statsKpiSubagents: 'Sub-agents',
+    statsKpiRtk: 'RTK gain', statsKpiQuota: 'Estimated weekly quota',
+    statsChartEfficiencyTitle: 'Score distribution',
+    statsChartDurationCostTitle: 'Duration × cost per session',
+    statsChartThroughputModelTitle: 'Average throughput by model',
+    statsChartSubagentsDistTitle: 'Sessions by sub-agent count',
+    statsChartRtkDailyTitle: 'RTK — tokens saved per day',
+    statsChartQuotaDailyTitle: 'Estimated weekly quota used per day',
     noSessionsInWindow: 'No session in this window',
     clickLoad: 'Click "Load" to display sessions',
     date: 'Date', uuid: 'UUID', model: 'Model',
@@ -1127,6 +1243,10 @@ const I18N = {
     cacheRTooltip: (n, ratio) => `Cache READ — reads from prompt cache.\n• API rate: 10% of input price (cr)\n• Claude Code plan: NOT BILLED\nTotal: ${n}\nRatio: ${ratio}% of context`,
     cacheWTooltip: (n) => `Cache WRITE — writes to prompt cache.\nRate: 1.25× input price (expensive creation but amortized on subsequent reads).\nTotal: ${n}`,
     totalTokens: (n) => `Total tokens (in + out + cw + cr): ${n}`,
+    durationCol: 'Duration', throughputCol: 'Throughput', efficiencyCol: 'Score',
+    durationTooltip: (start, end) => `Duration = last timestamped event − first timestamped event in the JSONL.\nStart: ${start}\nEnd: ${end}\nIncludes idle time (thinking, pauses between messages) — not pure compute time.`,
+    throughputTooltip: (total) => `Average throughput = total tokens / duration, in tokens/minute.\nTotal tokens: ${total}\n— if duration is too short (< 1s) to be meaningful.`,
+    efficiencyTooltip: (durPct, tokPct) => `"Value for time" score /10 — RELATIVE to the sessions currently shown, not an absolute threshold.\nThis session is longer than ${durPct}% of them, and uses more tokens than ${tokPct}% of them.\nScore = 10 − average(these 2 ranks) × 10.\n10 = short AND token-light. 0 = long AND token-heavy.\nChanges if you change the time window or project filter.`,
     planFormulaTooltip: (cost) => `PLAN cost (Claude Code subscription).\nFormula: in×$in + out×$out + cw×$cw\nCache read EXCLUDED.\n= ${cost}`,
     apiFormulaTooltip: (cost, savings) => `Theoretical API cost (Anthropic API equivalent).\nFormula: in×$in + out×$out + cw×$cw + cr×$cr\n= ${cost}\nCache savings: ${savings}`,
     deltaTooltip: (sign, pct, avg, sPlan) => `Deviation vs sessions average: ${sign}${pct}%\nAverage plan: ${avg}\nThis session: ${sPlan}`,
@@ -1404,6 +1524,71 @@ const fmtCost = c => {
   if (c >= 0.001) return '¢' + (c*100).toFixed(2);
   return '¢' + (c*100).toFixed(3);
 };
+// Durée session/sous-agent = lastEventTs - firstEventTs (inclut les temps morts, pas du calcul pur)
+function sessionDurationMs(s) {
+  return (s.firstEventTs && s.lastEventTs && s.lastEventTs > s.firstEventTs) ? s.lastEventTs - s.firstEventTs : 0;
+}
+function fmtDuration(ms) {
+  if (!ms || ms <= 0) return '—';
+  const s = Math.round(ms / 1000);
+  if (s < 60) return `${s}s`;
+  const m = Math.round(s / 60);
+  if (m < 60) return `${m}min`;
+  const h = Math.floor(m / 60), rm = m % 60;
+  if (h < 24) return rm ? `${h}h${String(rm).padStart(2,'0')}` : `${h}h`;
+  const d = Math.floor(h / 24), rh = h % 24;
+  return rh ? `${d}j${rh}h` : `${d}j`;
+}
+// Débit = tokens / minute — sous 1s la mesure n'est plus significative
+function fmtThroughput(total, ms) {
+  if (!ms || ms < 1000) return '—';
+  return fmtTok(Math.round(total / (ms / 60_000))) + '/min';
+}
+
+// Rang percentile (0..1, 0=plus petit, 1=plus grand) de chaque valeur au sein
+// du tableau — égalités = rang moyen. Insensible à l'échelle/aux outliers
+// (contrairement à un min-max), donc adapté à des distributions très étalées
+// comme durée de session (secondes → jours) ou volume de tokens.
+function percentileRanks(values) {
+  const n = values.length;
+  if (n <= 1) return values.map(() => 0);
+  const order = values.map((_, i) => i).sort((a, b) => values[a] - values[b]);
+  const ranks = new Array(n);
+  let i = 0;
+  while (i < n) {
+    let j = i;
+    while (j + 1 < n && values[order[j + 1]] === values[order[i]]) j++;
+    const avgRank = (i + j) / 2;
+    for (let k = i; k <= j; k++) ranks[order[k]] = avgRank / (n - 1);
+    i = j + 1;
+  }
+  return ranks;
+}
+// Note "rentabilité" /10, RELATIVE aux sessions affichées : moyenne des rangs
+// percentiles durée + total tokens, inversée (rang bas des deux = note haute).
+// Pas de seuil absolu — recalculée à chaque changement de fenêtre/filtre.
+function computeEfficiencyScores(sessions) {
+  const durations = sessions.map(s => sessionDurationMs(s));
+  const totals = sessions.map(s => s.total || 0);
+  const durRanks = percentileRanks(durations);
+  const tokRanks = percentileRanks(totals);
+  sessions.forEach((s, i) => {
+    const bloat = (durRanks[i] + tokRanks[i]) / 2; // 0 = léger, 1 = lourd
+    s.efficiencyScore = Math.round((10 - bloat * 10) * 10) / 10;
+    s._durRank = durRanks[i]; s._tokRank = tokRanks[i];
+  });
+}
+function efficiencyColor(score) {
+  if (score >= 7) return 'var(--green)';
+  if (score >= 4) return 'var(--gold)';
+  return 'var(--accent)';
+}
+// Canvas (Chart.js fillStyle) ne résout pas var(--x) — il faut une couleur littérale.
+function efficiencyColorHex(score) {
+  if (score >= 7) return '#059669';
+  if (score >= 4) return '#d97706';
+  return '#cd0000';
+}
 const fmtDate = ts => new Date(ts).toLocaleString('fr-FR', { month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit' });
 const fmtTime = ts => new Date(ts).toLocaleTimeString('fr-FR', { hour:'2-digit', minute:'2-digit', second:'2-digit' });
 const fmtRelative = ms => {
@@ -1461,6 +1646,7 @@ let liveSessionsData = [];
 
 // ── Tabs ─────────────────────────────────────────────────
 let sessionsAutoLoaded = false;
+let statsAutoLoaded = false;
 document.querySelectorAll('.tab-btn').forEach(btn => {
   btn.addEventListener('click', () => {
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
@@ -1472,6 +1658,11 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
       sessionsAutoLoaded = true;
       $('sess-days').value = '1';
       loadSessionsTab();
+    }
+    // Auto-load Statistiques au premier passage
+    if (btn.dataset.tab === 'stats' && !statsAutoLoaded) {
+      statsAutoLoaded = true;
+      loadStatsTab();
     }
   });
 });
@@ -2099,6 +2290,7 @@ function ctxState(pct) {
 }
 
 function renderSessions(sessions) {
+  computeEfficiencyScores(sessions);
   buildSessionsChart(sessions);
   renderTimeline(sessions);
   renderKPIs(sessions);
@@ -2106,7 +2298,7 @@ function renderSessions(sessions) {
 
   const body = $('sessions-body');
   if (!sessions.length) {
-    body.innerHTML = `<tr><td colspan="17" style="padding:32px;text-align:center;color:var(--text-dim)">${t('noSessionsInWindow')}</td></tr>`;
+    body.innerHTML = `<tr><td colspan="21" style="padding:32px;text-align:center;color:var(--text-dim)">${t('noSessionsInWindow')}</td></tr>`;
     $('sessions-summary').textContent = '';
     return;
   }
@@ -2153,12 +2345,15 @@ function renderSessions(sessions) {
           <th class="num">CR</th>
           <th class="num">CW</th>
           <th class="num">${t('total')}</th>
+          <th class="num">${t('durationCol')}</th>
+          <th class="num">${t('throughputCol')}</th>
           <th class="num">${t('forfait')}</th>
           <th class="num">${t('apiCol')}</th>
         </tr></thead>
         <tbody>${[...s.subagents].sort((a,b)=>(b.costPlan ?? b.cost)-(a.costPlan ?? a.cost)).map(sa => {
           const saPlan = sa.costPlan ?? sa.cost;
           const saSavings = Math.max(0, (sa.costNoCache || 0) - sa.cost);
+          const saDurationMs = sessionDurationMs(sa);
           return `<tr title="${escHtml(sa.description || sa.agentType || '')}\n\n${t('model')} : ${modelShort(sa.model)}\n${t('forfait')} : ${fmtCost(saPlan)}\n${t('apiCol')} : ${fmtCost(sa.cost)}\n${t('saveCacheLabel')} : ${fmtCost(saSavings)}">
             <td style="color:${modelColor(sa.model)};font-weight:600">${escHtml(sa.agentType)}</td>
             <td style="color:var(--text-soft);max-width:200px;overflow:hidden;text-overflow:ellipsis">${escHtml((sa.description||'').slice(0,80))}</td>
@@ -2168,6 +2363,8 @@ function renderSessions(sessions) {
             <td class="num" style="color:var(--green)">${sa.usage.cr > 0 ? fmtTok(sa.usage.cr) : '—'}</td>
             <td class="num" style="color:var(--gold)">${sa.usage.cw > 0 ? fmtTok(sa.usage.cw) : '—'}</td>
             <td class="num">${fmtTok(sa.total)}</td>
+            <td class="num">${fmtDuration(saDurationMs)}</td>
+            <td class="num">${fmtThroughput(sa.total, saDurationMs)}</td>
             <td class="num tbl-plan">${fmtCost(saPlan)}</td>
             <td class="num tbl-cost">${fmtCost(sa.cost)}</td>
           </tr>`;
@@ -2192,7 +2389,7 @@ function renderSessions(sessions) {
       <div class="tt-body" data-tools-body="${i}"></div>` : '';
 
     const subRows = hasDetail ? `<tr class="detail-row" id="detail-${i}">
-      <td colspan="17"><div class="detail-inner">${subAgentsBlock}${topToolsBlock}</div></td>
+      <td colspan="21"><div class="detail-inner">${subAgentsBlock}${topToolsBlock}</div></td>
     </tr>` : '';
 
     return `<tr class="session-row" data-idx="${i}" title="${escHtml(s.title)}">
@@ -2200,11 +2397,17 @@ function renderSessions(sessions) {
       <td class="tbl-at" title="${ttDate}">${fmtDate(s.mtime)}</td>
       <td class="tbl-uuid" title="UUID: ${s.uuid}">${s.uuid.slice(0,8)}</td>
       <td class="tbl-model" style="color:${modelColor(s.parentModel)}" title="${ttModel}">${modelShort(s.parentModel)}</td>
+      <td class="num" title="${ttSubs}">${hasSubs ? s.subagents.length : '<span style="color:var(--text-dim)">—</span>'}</td>
       <td class="num" title="${ttIn}">${fmtTok(s.usage.in)}</td>
       <td class="num" title="${ttOut}">${fmtTok(s.usage.out)}</td>
       <td class="num" style="color:var(--green)" title="${ttCR}">${s.usage.cr > 0 ? fmtTok(s.usage.cr) : '<span style="color:var(--text-dim)">—</span>'}</td>
       <td class="num" style="color:var(--gold)" title="${ttCW}">${s.usage.cw > 0 ? fmtTok(s.usage.cw) : '<span style="color:var(--text-dim)">—</span>'}</td>
       <td class="num" title="${ttTotal}">${fmtTok(s.total)}</td>
+      <td class="num" title="${escHtml(t('durationTooltip')(s.firstEventTs ? new Date(s.firstEventTs).toLocaleString(locale) : '—', s.lastEventTs ? new Date(s.lastEventTs).toLocaleString(locale) : '—'))}">${fmtDuration(sessionDurationMs(s))}</td>
+      <td class="num" title="${escHtml(t('throughputTooltip')(s.total.toLocaleString()))}">${fmtThroughput(s.total, sessionDurationMs(s))}</td>
+      <td class="num" title="${escHtml(t('efficiencyTooltip')((s._durRank*100).toFixed(0), (s._tokRank*100).toFixed(0)))}">
+        <strong style="color:${efficiencyColor(s.efficiencyScore)}">${s.efficiencyScore.toFixed(1)}</strong><span style="color:var(--text-mute);font-size:9px">/10</span>
+      </td>
       <td>${(() => {
         const ctxMax = modelCtxMax(s.parentModel);
         const pct = s.maxContext ? (s.maxContext / ctxMax) * 100 : 0;
@@ -2252,11 +2455,15 @@ function renderSessions(sessions) {
   const summaryRow = `<tr class="summary-row">
     <td></td>
     <td colspan="3" style="font-size:11px;color:var(--text-soft)">${t('total')} — ${sessions.length} ${t('sessions')}</td>
+    <td class="num">${fmtTok(sessions.reduce((s,x)=>s+(x.subagents?.length||0),0))}</td>
     <td class="num">${fmtTok(sessions.reduce((s,x)=>s+x.usage.in,0))}</td>
     <td class="num">${fmtTok(sessions.reduce((s,x)=>s+x.usage.out,0))}</td>
     <td class="num">${fmtTok(sessions.reduce((s,x)=>s+x.usage.cr,0))}</td>
     <td class="num">${fmtTok(sessions.reduce((s,x)=>s+x.usage.cw,0))}</td>
     <td class="num">${fmtTok(sessions.reduce((s,x)=>s+x.total,0))}</td>
+    <td></td>
+    <td></td>
+    <td></td>
     <td></td>
     <td class="num tbl-plan">${fmtCost(totalPlan)}</td>
     <td class="num tbl-cost">${fmtCost(totalFull)}</td>
@@ -2443,7 +2650,7 @@ function renderTimeline(sessions) {
   }).join('');
 }
 
-function refreshProjectOptions(allSessions) {
+function refreshProjectOptions(allSessions, selectId = 'sess-project-select') {
   // Liste les projets vus, triés par coût forfait décroissant
   const map = {};
   for (const s of allSessions) {
@@ -2453,7 +2660,7 @@ function refreshProjectOptions(allSessions) {
     map[p].count++;
   }
   const sorted = Object.entries(map).sort((a,b) => b[1].plan - a[1].plan);
-  const sel = $('sess-project-select');
+  const sel = $(selectId);
   const current = sel.value;
   // Insère le compte avant le tiret final : "— Tous (12) —" ou "— All (12) —"
   const allLabel = t('allProjects').replace(/—\s*$/, `(${allSessions.length}) —`);
@@ -2476,7 +2683,7 @@ async function loadSessionsTab() {
     sessionsData = project ? allData.filter(s => s.project === project) : allData;
     renderSessions(sessionsData);
   } catch (e) {
-    $('sessions-body').innerHTML = `<tr><td colspan="17" style="padding:24px;text-align:center;color:var(--accent)">${t('error')} : ${escHtml(String(e))}</td></tr>`;
+    $('sessions-body').innerHTML = `<tr><td colspan="21" style="padding:24px;text-align:center;color:var(--accent)">${t('error')} : ${escHtml(String(e))}</td></tr>`;
   } finally {
     $('sessions-loading').style.display = 'none';
   }
@@ -2485,6 +2692,238 @@ async function loadSessionsTab() {
 $('btn-load-sessions').addEventListener('click', loadSessionsTab);
 $('sess-days').addEventListener('change', loadSessionsTab);
 $('sess-project-select').addEventListener('change', loadSessionsTab);
+
+// ── Statistiques tab ───────────────────────────────────────
+async function loadStatsTab() {
+  const days    = parseInt($('stats-days').value, 10);
+  const project = $('stats-project-select').value.trim() || null;
+  $('stats-loading').style.display = 'block';
+  $('stats-kpi-strip').style.display = 'none';
+  try {
+    const params = new URLSearchParams({ days });
+    const res     = await fetch('/api/sessions?' + params);
+    const allData = await res.json();
+    refreshProjectOptions(allData, 'stats-project-select');
+    const sessions = project ? allData.filter(s => s.project === project) : allData;
+    computeEfficiencyScores(sessions);
+    $('stats-summary').textContent = sessions.length ? `${sessions.length} ${t('sessions')}` : '';
+    renderStatsKPIs(sessions);
+    renderStatsCharts(sessions);
+  } catch (e) {
+    $('stats-summary').textContent = `${t('error')} : ${String(e)}`;
+  } finally {
+    $('stats-loading').style.display = 'none';
+  }
+}
+$('btn-load-stats').addEventListener('click', loadStatsTab);
+$('stats-days').addEventListener('change', loadStatsTab);
+$('stats-project-select').addEventListener('change', loadStatsTab);
+
+function renderStatsKPIs(sessions) {
+  $('stats-kpi-strip').style.display = sessions.length ? '' : 'none';
+  if (!sessions.length) return;
+
+  const avgScore = sessions.reduce((a, s) => a + s.efficiencyScore, 0) / sessions.length;
+  const scoreEl = $('stats-kpi-score');
+  scoreEl.textContent = avgScore.toFixed(1) + '/10';
+  scoreEl.style.color = efficiencyColor(avgScore);
+
+  const totalTokens = sessions.reduce((a, s) => a + s.total, 0);
+  const totalMs     = sessions.reduce((a, s) => a + sessionDurationMs(s), 0);
+  $('stats-kpi-throughput').textContent = totalMs > 0 ? fmtTok(Math.round(totalTokens / (totalMs / 60_000))) + '/min' : '—';
+
+  const totalSubs = sessions.reduce((a, s) => a + (s.subagents?.length || 0), 0);
+  $('stats-kpi-subagents').textContent = totalSubs.toLocaleString();
+  $('stats-kpi-subagents-sub').textContent = `${(totalSubs / sessions.length).toFixed(1)} / session`;
+
+  const totalRtk = sessions.reduce((a, s) => a + (s.rtk?.savedTokens || 0), 0);
+  $('stats-kpi-rtk').textContent = totalRtk > 0 ? '+' + fmtTok(totalRtk) : '—';
+
+  const totalQuota = sessions.reduce((a, s) => a + (s.weeklyQuota?.available && s.weeklyQuota?.reliable ? s.weeklyQuota.pct : 0), 0);
+  $('stats-kpi-quota').textContent = totalQuota > 0 ? `≈ ${totalQuota.toFixed(2)}%` : '—';
+}
+
+// Bucket jour (locale), en comblant les trous entre min et max — même logique
+// que buildSessionsChart, sinon un jour sans session casse la lisibilité.
+function bucketSessionsByDay(sessions, valueFn) {
+  const today0 = new Date().toISOString().slice(0, 10);
+  const map = {};
+  let minMs = Infinity, maxMs = -Infinity;
+  for (const s of sessions) {
+    const d = new Date(s.firstEventTs || s.mtime);
+    d.setHours(0, 0, 0, 0);
+    const bMs = d.getTime();
+    if (bMs < minMs) minMs = bMs;
+    if (bMs > maxMs) maxMs = bMs;
+    const key = d.toISOString().slice(0, 10);
+    map[key] ??= { ms: bMs, value: 0 };
+    map[key].value += valueFn(s);
+  }
+  const groups = [];
+  if (isFinite(minMs)) {
+    const safeMin = Math.max(minMs, maxMs - 60 * 86_400_000);
+    for (let ms = safeMin; ms <= maxMs; ms += 86_400_000) {
+      const d = new Date(ms);
+      const key = d.toISOString().slice(0, 10);
+      const label = key === today0 ? 'Auj.' : `${d.getDate()}/${d.getMonth() + 1}`;
+      groups.push({ label, value: map[key]?.value || 0 });
+    }
+  }
+  return groups;
+}
+
+let efficiencyHistChart = null, durationCostChart = null, throughputModelChart = null,
+    subagentsDistChart = null, rtkDailyChart = null, quotaDailyChart = null;
+
+function renderStatsCharts(sessions) {
+  renderEfficiencyHistChart(sessions);
+  renderDurationCostChart(sessions);
+  renderThroughputModelChart(sessions);
+  renderSubagentsDistChart(sessions);
+  renderRtkDailyChart(sessions);
+  renderQuotaDailyChart(sessions);
+}
+
+function renderEfficiencyHistChart(sessions) {
+  if (efficiencyHistChart) { efficiencyHistChart.destroy(); efficiencyHistChart = null; }
+  const bins = Array.from({ length: 10 }, (_, i) => ({ label: `${i}-${i+1}`, count: 0, color: efficiencyColorHex(i + 0.5) }));
+  for (const s of sessions) {
+    const idx = Math.min(9, Math.max(0, Math.floor(s.efficiencyScore)));
+    bins[idx].count++;
+  }
+  efficiencyHistChart = new Chart($('chart-efficiency-hist').getContext('2d'), {
+    type: 'bar',
+    data: { labels: bins.map(b => b.label), datasets: [{ data: bins.map(b => b.count), backgroundColor: bins.map(b => b.color), borderRadius: 4 }] },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: {
+          title: items => `${items[0].label} /10`,
+          label: ctx => ` ${ctx.raw} session${ctx.raw > 1 ? 's' : ''}`,
+        } },
+      },
+      scales: {
+        y: { beginAtZero: true, ticks: { stepSize: 1, font: { size: 10 }, color: '#9a9389' }, grid: { color: '#f0ebe1', drawBorder: false } },
+        x: { ticks: { font: { size: 9 }, color: '#5b554c' }, grid: { display: false } },
+      },
+    },
+  });
+}
+
+function renderDurationCostChart(sessions) {
+  if (durationCostChart) { durationCostChart.destroy(); durationCostChart = null; }
+  const points = sessions.filter(s => sessionDurationMs(s) > 0 && (s.costPlan ?? s.cost) > 0).map(s => ({
+    x: sessionDurationMs(s) / 60_000, y: s.costPlan ?? s.cost, score: s.efficiencyScore, uuid: s.uuid,
+  }));
+  durationCostChart = new Chart($('chart-duration-cost').getContext('2d'), {
+    type: 'scatter',
+    data: { datasets: [{ data: points, backgroundColor: points.map(p => efficiencyColorHex(p.score)), pointRadius: 4, pointHoverRadius: 6 }] },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: {
+          label: ctx => {
+            const p = ctx.raw;
+            return [` ${p.uuid.slice(0,8)} — ${fmtDuration(p.x*60_000)} · ${fmtCost(p.y)}`, ` ${t('efficiencyCol')}: ${p.score.toFixed(1)}/10`];
+          },
+        } },
+      },
+      scales: {
+        x: { type: 'logarithmic', title: { display: true, text: t('durationCol') + ' (min)', font: { size: 10 }, color: '#9a9389' },
+             ticks: { font: { size: 9 }, color: '#9a9389', callback: v => fmtDuration(v*60_000) }, grid: { color: '#f0ebe1', drawBorder: false } },
+        y: { type: 'logarithmic', title: { display: true, text: 'Forfait $', font: { size: 10 }, color: '#9a9389' },
+             ticks: { font: { size: 9 }, color: '#9a9389', callback: v => fmtCost(v) }, grid: { color: '#f0ebe1', drawBorder: false } },
+      },
+    },
+  });
+}
+
+function renderThroughputModelChart(sessions) {
+  if (throughputModelChart) { throughputModelChart.destroy(); throughputModelChart = null; }
+  const map = {};
+  for (const s of sessions) {
+    const ms = sessionDurationMs(s);
+    if (ms < 1000) continue;
+    const m = s.parentModel || 'unknown';
+    map[m] ??= { tokens: 0, ms: 0 };
+    map[m].tokens += s.total; map[m].ms += ms;
+  }
+  const entries = Object.entries(map)
+    .map(([m, v]) => ({ model: m, perMin: v.tokens / (v.ms / 60_000) }))
+    .sort((a, b) => b.perMin - a.perMin);
+  throughputModelChart = new Chart($('chart-throughput-model').getContext('2d'), {
+    type: 'bar',
+    data: { labels: entries.map(e => modelShort(e.model)), datasets: [{ data: entries.map(e => Math.round(e.perMin)), backgroundColor: entries.map(e => modelColor(e.model)), borderRadius: 4 }] },
+    options: {
+      indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => ` ${fmtTok(ctx.raw)} tokens/min` } } },
+      scales: {
+        x: { beginAtZero: true, ticks: { callback: v => fmtTok(v), font: { size: 10 }, color: '#9a9389' }, grid: { color: '#f0ebe1', drawBorder: false } },
+        y: { ticks: { font: { size: 10 }, color: '#5b554c' }, grid: { display: false } },
+      },
+    },
+  });
+}
+
+function renderSubagentsDistChart(sessions) {
+  if (subagentsDistChart) { subagentsDistChart.destroy(); subagentsDistChart = null; }
+  const buckets = [
+    { label: '0',     test: n => n === 0 },
+    { label: '1-5',   test: n => n >= 1  && n <= 5 },
+    { label: '6-20',  test: n => n >= 6  && n <= 20 },
+    { label: '21-50', test: n => n >= 21 && n <= 50 },
+    { label: '51+',   test: n => n > 50 },
+  ];
+  const counts = buckets.map(b => sessions.filter(s => b.test(s.subagents?.length || 0)).length);
+  subagentsDistChart = new Chart($('chart-subagents-dist').getContext('2d'), {
+    type: 'bar',
+    data: { labels: buckets.map(b => b.label), datasets: [{ data: counts, backgroundColor: 'rgba(124,58,237,.55)', borderColor: '#7c3aed', borderWidth: 1.5, borderRadius: 4 }] },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => ` ${ctx.raw} session${ctx.raw > 1 ? 's' : ''}` } } },
+      scales: {
+        y: { beginAtZero: true, ticks: { stepSize: 1, font: { size: 10 }, color: '#9a9389' }, grid: { color: '#f0ebe1', drawBorder: false } },
+        x: { title: { display: true, text: t('subagentsLabel'), font: { size: 10 }, color: '#9a9389' }, ticks: { font: { size: 10 }, color: '#5b554c' }, grid: { display: false } },
+      },
+    },
+  });
+}
+
+function renderRtkDailyChart(sessions) {
+  if (rtkDailyChart) { rtkDailyChart.destroy(); rtkDailyChart = null; }
+  const groups = bucketSessionsByDay(sessions, s => s.rtk?.savedTokens || 0);
+  rtkDailyChart = new Chart($('chart-rtk-daily').getContext('2d'), {
+    type: 'bar',
+    data: { labels: groups.map(g => g.label), datasets: [{ data: groups.map(g => g.value), backgroundColor: 'rgba(5,150,105,.55)', borderColor: '#059669', borderWidth: 1.5, borderRadius: 4 }] },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => ` +${fmtTok(ctx.raw)} tokens` } } },
+      scales: {
+        y: { beginAtZero: true, ticks: { callback: v => fmtTok(v), font: { size: 10 }, color: '#9a9389' }, grid: { color: '#f0ebe1', drawBorder: false } },
+        x: { ticks: { font: { size: 10 }, color: '#5b554c' }, grid: { display: false } },
+      },
+    },
+  });
+}
+
+function renderQuotaDailyChart(sessions) {
+  if (quotaDailyChart) { quotaDailyChart.destroy(); quotaDailyChart = null; }
+  const groups = bucketSessionsByDay(sessions, s => (s.weeklyQuota?.available && s.weeklyQuota?.reliable) ? s.weeklyQuota.pct : 0);
+  quotaDailyChart = new Chart($('chart-quota-daily').getContext('2d'), {
+    type: 'bar',
+    data: { labels: groups.map(g => g.label), datasets: [{ data: groups.map(g => +g.value.toFixed(2)), backgroundColor: 'rgba(217,119,6,.55)', borderColor: '#d97706', borderWidth: 1.5, borderRadius: 4 }] },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => ` ≈ ${ctx.raw}%` } } },
+      scales: {
+        y: { beginAtZero: true, ticks: { callback: v => v + '%', font: { size: 10 }, color: '#9a9389' }, grid: { color: '#f0ebe1', drawBorder: false } },
+        x: { ticks: { font: { size: 10 }, color: '#5b554c' }, grid: { display: false } },
+      },
+    },
+  });
+}
 
 // ── Plan usage (limite session 5h / hebdo) ────────────────
 function puClass(pct) {
